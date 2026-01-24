@@ -367,7 +367,28 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     const renderCommentText = (comment: any) => {
         // Handle both simple string and ADF (Atlassian Document Format) content
         if (typeof comment.body === 'string') {
-            return <Text style={styles.commentBody}>{comment.body}</Text>;
+            // Parse plain text for URLs and make them clickable
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const parts = comment.body.split(urlRegex);
+
+            return (
+                <Text style={styles.commentBody}>
+                    {parts.map((part: string, index: number) => {
+                        if (part.match(urlRegex)) {
+                            return (
+                                <Text
+                                    key={index}
+                                    style={styles.linkText}
+                                    onPress={() => Linking.openURL(part)}
+                                >
+                                    {part}
+                                </Text>
+                            );
+                        }
+                        return <Text key={index}>{part}</Text>;
+                    })}
+                </Text>
+            );
         }
 
         // Extract text from ADF format
@@ -391,7 +412,25 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                             </Text>
                                         );
                                     }
-                                    return <Text key={itemIndex}>{item.text || ''}</Text>;
+
+                                    // Also check for plain URLs in text and linkify them
+                                    const urlRegex = /(https?:\/\/[^\s]+)/g;
+                                    const textParts = (item.text || '').split(urlRegex);
+
+                                    return textParts.map((part: string, partIndex: number) => {
+                                        if (part.match(urlRegex)) {
+                                            return (
+                                                <Text
+                                                    key={`${itemIndex}-${partIndex}`}
+                                                    style={styles.linkText}
+                                                    onPress={() => Linking.openURL(part)}
+                                                >
+                                                    {part}
+                                                </Text>
+                                            );
+                                        }
+                                        return <Text key={`${itemIndex}-${partIndex}`}>{part}</Text>;
+                                    });
                                 } else if (item.type === 'mention') {
                                     return (
                                         <Text key={itemIndex} style={styles.mentionText}>
@@ -1194,338 +1233,348 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                 <View style={styles.placeholder} />
             </LinearGradient>
 
-            <ScrollView style={styles.content}>
-                {/* Issue Key and Status */}
-                <View style={styles.card}>
-                    <View style={styles.keyStatusRow}>
-                        <Text style={styles.issueKey}>{issue.key}</Text>
-                        <TouchableOpacity
-                            style={[styles.statusBadge, { backgroundColor: statusColor }]}
-                            onPress={handleStatusPress}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={styles.statusText}>{issue.fields.status.name}</Text>
-                        </TouchableOpacity>
+            <KeyboardAvoidingView
+                style={{ flex: 1 }}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+            >
+                <ScrollView
+                    style={styles.content}
+                    contentContainerStyle={{ paddingBottom: 20 }}
+                    keyboardShouldPersistTaps="handled"
+                >
+                    {/* Issue Key and Status */}
+                    <View style={styles.card}>
+                        <View style={styles.keyStatusRow}>
+                            <Text style={styles.issueKey}>{issue.key}</Text>
+                            <TouchableOpacity
+                                style={[styles.statusBadge, { backgroundColor: statusColor }]}
+                                onPress={handleStatusPress}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.statusText}>{issue.fields.status.name}</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                </View>
 
-                {/* Summary */}
-                <View style={styles.card}>
-                    <View style={styles.cardHeader}>
-                        <Text style={styles.sectionTitle}>Summary</Text>
-                        <TouchableOpacity onPress={handleSummaryEdit} style={styles.editButton}>
-                            <Text style={styles.editButtonText}>✏️ Edit</Text>
-                        </TouchableOpacity>
+                    {/* Summary */}
+                    <View style={styles.card}>
+                        <View style={styles.cardHeader}>
+                            <Text style={styles.sectionTitle}>Summary</Text>
+                            <TouchableOpacity onPress={handleSummaryEdit} style={styles.editButton}>
+                                <Text style={styles.editButtonText}>✏️ Edit</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={styles.summary}>{issue.fields.summary}</Text>
                     </View>
-                    <Text style={styles.summary}>{issue.fields.summary}</Text>
-                </View>
 
-                {/* Description */}
-                <View style={styles.card}>
-                    <View style={styles.cardHeader}>
-                        <Text style={styles.sectionTitle}>Description</Text>
-                        <TouchableOpacity onPress={handleDescriptionEdit} style={styles.editButton}>
-                            <Text style={styles.editButtonText}>✏️ Edit</Text>
-                        </TouchableOpacity>
-                    </View>
-                    {issue.fields.description ? (
-                        <View>
-                            {renderDescriptionText(issue.fields.description)}
+                    {/* Description */}
+                    <View style={styles.card}>
+                        <View style={styles.cardHeader}>
+                            <Text style={styles.sectionTitle}>Description</Text>
+                            <TouchableOpacity onPress={handleDescriptionEdit} style={styles.editButton}>
+                                <Text style={styles.editButtonText}>✏️ Edit</Text>
+                            </TouchableOpacity>
+                        </View>
+                        {issue.fields.description ? (
+                            <View>
+                                {renderDescriptionText(issue.fields.description)}
 
-                            {/* Inline Attachments */}
-                            {issue.fields.attachment && issue.fields.attachment.length > 0 && (
-                                <View style={styles.inlineAttachmentsSection}>
-                                    <Text style={styles.inlineAttachmentsTitle}>
-                                        📎 Attachments ({issue.fields.attachment.length})
-                                    </Text>
-                                    <View style={styles.inlineAttachmentsGrid}>
-                                        {issue.fields.attachment.map((attachment: any) => (
-                                            <TouchableOpacity
-                                                key={attachment.id}
-                                                style={styles.inlineAttachmentItem}
-                                                onPress={() => {
-                                                    if (attachment.mimeType.startsWith('image/')) {
-                                                        setPreviewAttachment(attachment);
-                                                    } else {
-                                                        Linking.openURL(attachment.content);
-                                                    }
-                                                }}
-                                            >
-                                                {attachment.mimeType.startsWith('image/') ? (
-                                                    loadedImageData[attachment.id] ? (
-                                                        <Image
-                                                            source={{ uri: loadedImageData[attachment.id] }}
-                                                            style={styles.inlineAttachmentImage}
-                                                        />
+                                {/* Inline Attachments */}
+                                {issue.fields.attachment && issue.fields.attachment.length > 0 && (
+                                    <View style={styles.inlineAttachmentsSection}>
+                                        <Text style={styles.inlineAttachmentsTitle}>
+                                            📎 Attachments ({issue.fields.attachment.length})
+                                        </Text>
+                                        <View style={styles.inlineAttachmentsGrid}>
+                                            {issue.fields.attachment.map((attachment: any) => (
+                                                <TouchableOpacity
+                                                    key={attachment.id}
+                                                    style={styles.inlineAttachmentItem}
+                                                    onPress={() => {
+                                                        if (attachment.mimeType.startsWith('image/')) {
+                                                            setPreviewAttachment(attachment);
+                                                        } else {
+                                                            Linking.openURL(attachment.content);
+                                                        }
+                                                    }}
+                                                >
+                                                    {attachment.mimeType.startsWith('image/') ? (
+                                                        loadedImageData[attachment.id] ? (
+                                                            <Image
+                                                                source={{ uri: loadedImageData[attachment.id] }}
+                                                                style={styles.inlineAttachmentImage}
+                                                            />
+                                                        ) : (
+                                                            <View style={styles.inlineAttachmentPlaceholder}>
+                                                                <ActivityIndicator size="small" color="#0052CC" />
+                                                            </View>
+                                                        )
                                                     ) : (
-                                                        <View style={styles.inlineAttachmentPlaceholder}>
-                                                            <ActivityIndicator size="small" color="#0052CC" />
+                                                        <View style={styles.inlineAttachmentFile}>
+                                                            <Text style={styles.inlineAttachmentIcon}>📄</Text>
                                                         </View>
-                                                    )
-                                                ) : (
-                                                    <View style={styles.inlineAttachmentFile}>
-                                                        <Text style={styles.inlineAttachmentIcon}>📄</Text>
-                                                    </View>
-                                                )}
-                                                <Text style={styles.inlineAttachmentName} numberOfLines={2}>
-                                                    {attachment.filename}
-                                                </Text>
-                                                <Text style={styles.inlineAttachmentSize}>
-                                                    {(attachment.size / 1024).toFixed(1)} KB
-                                                </Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
-                                </View>
-                            )}
-                        </View>
-                    ) : (
-                        <Text style={styles.emptyDescription}>No description</Text>
-                    )}
-                </View>
-
-                {/* Details */}
-                <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Details</Text>
-
-                    <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Type:</Text>
-                        <TouchableOpacity
-                            style={styles.assigneeClickable}
-                            onPress={handleTypePress}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={styles.detailValue}>{issue.fields.issuetype.name}</Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    {issue.fields.priority && (
-                        <View style={styles.detailRow}>
-                            <Text style={styles.detailLabel}>Priority:</Text>
-                            <TouchableOpacity
-                                style={styles.assigneeClickable}
-                                onPress={handlePriorityPress}
-                                activeOpacity={0.7}
-                            >
-                                <View style={styles.priorityRow}>
-                                    <Text style={styles.priorityEmoji}>
-                                        {getPriorityEmoji(issue.fields.priority.name)}
-                                    </Text>
-                                    <Text style={styles.detailValue}>{issue.fields.priority.name}</Text>
-                                </View>
-                            </TouchableOpacity>
-                        </View>
-                    )}
-
-                    <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Assignee:</Text>
-                        {issue.fields.assignee ? (
-                            <TouchableOpacity
-                                style={styles.assigneeClickable}
-                                onPress={handleAssigneePress}
-                                activeOpacity={0.7}
-                            >
-                                <View style={styles.assigneeRow}>
-                                    {issue.fields.assignee.avatarUrls?.['48x48'] ? (
-                                        <Image
-                                            source={{ uri: issue.fields.assignee.avatarUrls['48x48'] }}
-                                            style={styles.assigneeAvatar}
-                                        />
-                                    ) : (
-                                        <View style={styles.avatar}>
-                                            <Text style={styles.avatarText}>
-                                                {issue.fields.assignee.displayName.charAt(0).toUpperCase()}
-                                            </Text>
+                                                    )}
+                                                    <Text style={styles.inlineAttachmentName} numberOfLines={2}>
+                                                        {attachment.filename}
+                                                    </Text>
+                                                    <Text style={styles.inlineAttachmentSize}>
+                                                        {(attachment.size / 1024).toFixed(1)} KB
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            ))}
                                         </View>
-                                    )}
-                                    <Text style={styles.detailValue}>
-                                        {issue.fields.assignee.displayName}
-                                    </Text>
-                                </View>
-                            </TouchableOpacity>
+                                    </View>
+                                )}
+                            </View>
                         ) : (
-                            <TouchableOpacity
-                                style={styles.assigneeClickable}
-                                onPress={handleAssigneePress}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[styles.detailValue, styles.unassignedText]}>Unassigned</Text>
-                            </TouchableOpacity>
+                            <Text style={styles.emptyDescription}>No description</Text>
                         )}
                     </View>
 
-                    <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Created:</Text>
-                        <Text style={styles.detailValue}>{formatDate(issue.fields.created)}</Text>
-                    </View>
-
-                    <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Updated:</Text>
-                        <Text style={styles.detailValue}>{formatDate(issue.fields.updated)}</Text>
-                    </View>
-
-                    {issue.fields.duedate !== undefined && (
-                        <View style={styles.detailRow}>
-                            <Text style={styles.detailLabel}>Due Date:</Text>
-                            <TouchableOpacity
-                                style={styles.assigneeClickable}
-                                onPress={handleDueDatePress}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[styles.detailValue, !issue.fields.duedate && styles.unassignedText]}>
-                                    {issue.fields.duedate ? formatDateOnly(issue.fields.duedate) : 'Not set'}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    )}
-
-                    {issue.fields.customfield_10016 !== undefined && (
-                        <View style={styles.detailRow}>
-                            <Text style={styles.detailLabel}>Story Points:</Text>
-                            <TouchableOpacity
-                                style={styles.assigneeClickable}
-                                onPress={handleStoryPointsPress}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[styles.detailValue, !issue.fields.customfield_10016 && styles.unassignedText]}>
-                                    {issue.fields.customfield_10016 || 'Not set'}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    )}
-                </View>
-
-                {/* Linked Issues and Pages */}
-                {(issueLinks.length > 0 || remoteLinks.length > 0) && (
+                    {/* Details */}
                     <View style={styles.card}>
-                        <Text style={styles.sectionTitle}>Links</Text>
+                        <Text style={styles.sectionTitle}>Details</Text>
 
-                        {/* Issue Links */}
-                        {issueLinks.map((link: any, index: number) => {
-                            const linkedIssue = link.outwardIssue || link.inwardIssue;
-                            const linkType = link.outwardIssue ? link.type.outward : link.type.inward;
-
-                            if (!linkedIssue) return null;
-
-                            return (
-                                <TouchableOpacity
-                                    key={`issue-${index}`}
-                                    style={styles.linkItem}
-                                    onPress={() => Alert.alert('Linked Issue', `${linkedIssue.key}: ${linkedIssue.fields.summary}`)}
-                                >
-                                    <View style={styles.linkIcon}>
-                                        <Text style={styles.linkIconText}>🔗</Text>
-                                    </View>
-                                    <View style={styles.linkContent}>
-                                        <Text style={styles.linkType}>{linkType}</Text>
-                                        <Text style={styles.linkTitle}>
-                                            {linkedIssue.key} - {linkedIssue.fields.summary}
-                                        </Text>
-                                        <Text style={styles.linkStatus}>
-                                            {linkedIssue.fields.status.name}
-                                        </Text>
-                                    </View>
-                                </TouchableOpacity>
-                            );
-                        })}
-
-                        {/* Remote Links (Confluence pages, etc.) */}
-                        {remoteLinks.map((link: any, index: number) => (
+                        <View style={styles.detailRow}>
+                            <Text style={styles.detailLabel}>Type:</Text>
                             <TouchableOpacity
-                                key={`remote-${index}`}
-                                style={styles.linkItem}
-                                onPress={() => {
-                                    const url = link.object?.url;
-                                    if (url) {
-                                        Linking.openURL(url);
-                                    }
-                                }}
+                                style={styles.assigneeClickable}
+                                onPress={handleTypePress}
+                                activeOpacity={0.7}
                             >
-                                <View style={styles.linkIcon}>
-                                    <Text style={styles.linkIconText}>
-                                        {link.object?.title?.toLowerCase().includes('confluence') ? '📄' : '🌐'}
-                                    </Text>
-                                </View>
-                                <View style={styles.linkContent}>
-                                    <Text style={styles.linkType}>
-                                        {link.relationship || 'Related'}
-                                    </Text>
-                                    <Text style={styles.linkTitle}>
-                                        {link.object?.title || 'External Link'}
-                                    </Text>
-                                    {link.object?.summary && (
-                                        <Text style={styles.linkSummary} numberOfLines={2}>
-                                            {link.object.summary}
-                                        </Text>
-                                    )}
-                                </View>
+                                <Text style={styles.detailValue}>{issue.fields.issuetype.name}</Text>
                             </TouchableOpacity>
-                        ))}
-                    </View>
-                )}
-
-                {/* Comments */}
-                <View style={styles.card}>
-                    <View style={styles.commentHeader}>
-                        <Text style={styles.sectionTitle}>Comments</Text>
-                        <Text style={styles.commentCount}>({comments.length})</Text>
-                    </View>
-
-                    {Platform.OS === 'web' ? (
-                        <Text style={styles.webWarning}>
-                            💡 Comments are not available on web due to CORS restrictions. Please use the mobile app.
-                        </Text>
-                    ) : loadingComments ? (
-                        <ActivityIndicator color="#0052CC" style={styles.commentsLoader} />
-                    ) : comments.length > 0 ? (
-                        <View>
-                            {commentTree.map(comment => renderComment(comment, 0))}
                         </View>
-                    ) : (
-                        <Text style={styles.noComments}>No comments yet</Text>
-                    )}
 
-                    {/* Add Comment Input */}
-                    {Platform.OS !== 'web' && (
-                        <View style={styles.addCommentSection}>
-                            {replyToCommentId && (
-                                <View style={styles.replyIndicator}>
-                                    <Text style={styles.replyingToText}>
-                                        Replying to {comments.find(c => c.id === replyToCommentId)?.author.displayName}
-                                    </Text>
-                                    <TouchableOpacity onPress={cancelReply}>
-                                        <Text style={styles.cancelReplyText}>✕</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            )}
-                            <View style={styles.commentInputRow}>
-                                <TextInput
-                                    style={styles.commentInput}
-                                    placeholder="Add a comment..."
-                                    placeholderTextColor="#999"
-                                    value={commentText}
-                                    onChangeText={setCommentText}
-                                    multiline
-                                    numberOfLines={3}
-                                />
+                        {issue.fields.priority && (
+                            <View style={styles.detailRow}>
+                                <Text style={styles.detailLabel}>Priority:</Text>
                                 <TouchableOpacity
-                                    style={[styles.postButton, postingComment && styles.postButtonDisabled]}
-                                    onPress={handleAddComment}
-                                    disabled={postingComment}
+                                    style={styles.assigneeClickable}
+                                    onPress={handlePriorityPress}
+                                    activeOpacity={0.7}
                                 >
-                                    {postingComment ? (
-                                        <ActivityIndicator color="#fff" size="small" />
-                                    ) : (
-                                        <Text style={styles.postButtonText}>Post</Text>
-                                    )}
+                                    <View style={styles.priorityRow}>
+                                        <Text style={styles.priorityEmoji}>
+                                            {getPriorityEmoji(issue.fields.priority.name)}
+                                        </Text>
+                                        <Text style={styles.detailValue}>{issue.fields.priority.name}</Text>
+                                    </View>
                                 </TouchableOpacity>
                             </View>
+                        )}
+
+                        <View style={styles.detailRow}>
+                            <Text style={styles.detailLabel}>Assignee:</Text>
+                            {issue.fields.assignee ? (
+                                <TouchableOpacity
+                                    style={styles.assigneeClickable}
+                                    onPress={handleAssigneePress}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={styles.assigneeRow}>
+                                        {issue.fields.assignee.avatarUrls?.['48x48'] ? (
+                                            <Image
+                                                source={{ uri: issue.fields.assignee.avatarUrls['48x48'] }}
+                                                style={styles.assigneeAvatar}
+                                            />
+                                        ) : (
+                                            <View style={styles.avatar}>
+                                                <Text style={styles.avatarText}>
+                                                    {issue.fields.assignee.displayName.charAt(0).toUpperCase()}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        <Text style={styles.detailValue}>
+                                            {issue.fields.assignee.displayName}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            ) : (
+                                <TouchableOpacity
+                                    style={styles.assigneeClickable}
+                                    onPress={handleAssigneePress}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[styles.detailValue, styles.unassignedText]}>Unassigned</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+
+                        <View style={styles.detailRow}>
+                            <Text style={styles.detailLabel}>Created:</Text>
+                            <Text style={styles.detailValue}>{formatDate(issue.fields.created)}</Text>
+                        </View>
+
+                        <View style={styles.detailRow}>
+                            <Text style={styles.detailLabel}>Updated:</Text>
+                            <Text style={styles.detailValue}>{formatDate(issue.fields.updated)}</Text>
+                        </View>
+
+                        {issue.fields.duedate !== undefined && (
+                            <View style={styles.detailRow}>
+                                <Text style={styles.detailLabel}>Due Date:</Text>
+                                <TouchableOpacity
+                                    style={styles.assigneeClickable}
+                                    onPress={handleDueDatePress}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[styles.detailValue, !issue.fields.duedate && styles.unassignedText]}>
+                                        {issue.fields.duedate ? formatDateOnly(issue.fields.duedate) : 'Not set'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
+                        {issue.fields.customfield_10016 !== undefined && (
+                            <View style={styles.detailRow}>
+                                <Text style={styles.detailLabel}>Story Points:</Text>
+                                <TouchableOpacity
+                                    style={styles.assigneeClickable}
+                                    onPress={handleStoryPointsPress}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[styles.detailValue, !issue.fields.customfield_10016 && styles.unassignedText]}>
+                                        {issue.fields.customfield_10016 || 'Not set'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </View>
+
+                    {/* Linked Issues and Pages */}
+                    {(issueLinks.length > 0 || remoteLinks.length > 0) && (
+                        <View style={styles.card}>
+                            <Text style={styles.sectionTitle}>Links</Text>
+
+                            {/* Issue Links */}
+                            {issueLinks.map((link: any, index: number) => {
+                                const linkedIssue = link.outwardIssue || link.inwardIssue;
+                                const linkType = link.outwardIssue ? link.type.outward : link.type.inward;
+
+                                if (!linkedIssue) return null;
+
+                                return (
+                                    <TouchableOpacity
+                                        key={`issue-${index}`}
+                                        style={styles.linkItem}
+                                        onPress={() => Alert.alert('Linked Issue', `${linkedIssue.key}: ${linkedIssue.fields.summary}`)}
+                                    >
+                                        <View style={styles.linkIcon}>
+                                            <Text style={styles.linkIconText}>🔗</Text>
+                                        </View>
+                                        <View style={styles.linkContent}>
+                                            <Text style={styles.linkType}>{linkType}</Text>
+                                            <Text style={styles.linkTitle}>
+                                                {linkedIssue.key} - {linkedIssue.fields.summary}
+                                            </Text>
+                                            <Text style={styles.linkStatus}>
+                                                {linkedIssue.fields.status.name}
+                                            </Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })}
+
+                            {/* Remote Links (Confluence pages, etc.) */}
+                            {remoteLinks.map((link: any, index: number) => (
+                                <TouchableOpacity
+                                    key={`remote-${index}`}
+                                    style={styles.linkItem}
+                                    onPress={() => {
+                                        const url = link.object?.url;
+                                        if (url) {
+                                            Linking.openURL(url);
+                                        }
+                                    }}
+                                >
+                                    <View style={styles.linkIcon}>
+                                        <Text style={styles.linkIconText}>
+                                            {link.object?.title?.toLowerCase().includes('confluence') ? '📄' : '🌐'}
+                                        </Text>
+                                    </View>
+                                    <View style={styles.linkContent}>
+                                        <Text style={styles.linkType}>
+                                            {link.relationship || 'Related'}
+                                        </Text>
+                                        <Text style={styles.linkTitle}>
+                                            {link.object?.title || 'External Link'}
+                                        </Text>
+                                        {link.object?.summary && (
+                                            <Text style={styles.linkSummary} numberOfLines={2}>
+                                                {link.object.summary}
+                                            </Text>
+                                        )}
+                                    </View>
+                                </TouchableOpacity>
+                            ))}
                         </View>
                     )}
-                </View>
 
-                <View style={styles.bottomPadding} />
-            </ScrollView>
+                    {/* Comments */}
+                    <View style={styles.card}>
+                        <View style={styles.commentHeader}>
+                            <Text style={styles.sectionTitle}>Comments</Text>
+                            <Text style={styles.commentCount}>({comments.length})</Text>
+                        </View>
+
+                        {Platform.OS === 'web' ? (
+                            <Text style={styles.webWarning}>
+                                💡 Comments are not available on web due to CORS restrictions. Please use the mobile app.
+                            </Text>
+                        ) : loadingComments ? (
+                            <ActivityIndicator color="#0052CC" style={styles.commentsLoader} />
+                        ) : comments.length > 0 ? (
+                            <View>
+                                {commentTree.map(comment => renderComment(comment, 0))}
+                            </View>
+                        ) : (
+                            <Text style={styles.noComments}>No comments yet</Text>
+                        )}
+                    </View>
+
+                    <View style={styles.bottomPadding} />
+                </ScrollView>
+
+                {/* Fixed Comment Input at Bottom */}
+                {Platform.OS !== 'web' && (
+                    <View style={styles.fixedCommentSection}>
+                        {replyToCommentId && (
+                            <View style={styles.replyIndicator}>
+                                <Text style={styles.replyingToText}>
+                                    Replying to {comments.find(c => c.id === replyToCommentId)?.author.displayName}
+                                </Text>
+                                <TouchableOpacity onPress={cancelReply}>
+                                    <Text style={styles.cancelReplyText}>✕</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                        <View style={styles.commentInputRow}>
+                            <TextInput
+                                style={styles.commentInput}
+                                placeholder="Add a comment..."
+                                placeholderTextColor="#999"
+                                value={commentText}
+                                onChangeText={setCommentText}
+                                multiline
+                                maxLength={500}
+                            />
+                            <TouchableOpacity
+                                style={[styles.postButton, (postingComment || !commentText.trim()) && styles.postButtonDisabled]}
+                                onPress={handleAddComment}
+                                disabled={postingComment || !commentText.trim()}
+                            >
+                                {postingComment ? (
+                                    <ActivityIndicator color="#fff" size="small" />
+                                ) : (
+                                    <Text style={styles.postButtonText}>Post</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
+            </KeyboardAvoidingView>
 
             {/* Attachment Preview Modal */}
             <Modal
@@ -2735,11 +2784,18 @@ const styles = StyleSheet.create({
         color: '#A5ADBA',
         fontStyle: 'italic',
     },
-    addCommentSection: {
-        marginTop: 20,
+    fixedCommentSection: {
+        backgroundColor: '#FFFFFF',
         borderTopWidth: 1,
         borderTopColor: '#E8EBED',
-        paddingTop: 15,
+        paddingHorizontal: 15,
+        paddingTop: 12,
+        paddingBottom: Platform.OS === 'ios' ? 20 : 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 8,
     },
     replyIndicator: {
         flexDirection: 'row',
@@ -2749,7 +2805,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderRadius: 8,
-        marginBottom: 10,
+        marginBottom: 8,
     },
     replyingToText: {
         fontSize: 13,
@@ -2764,34 +2820,41 @@ const styles = StyleSheet.create({
     commentInputRow: {
         flexDirection: 'row',
         alignItems: 'flex-end',
-        gap: 10,
+        gap: 8,
     },
     commentInput: {
         flex: 1,
         backgroundColor: '#F4F5F7',
-        borderRadius: 8,
-        paddingHorizontal: 12,
+        borderRadius: 12,
+        paddingHorizontal: 14,
         paddingVertical: 10,
-        fontSize: 14,
+        fontSize: 15,
         color: '#172B4D',
-        borderWidth: 1,
+        borderWidth: 1.5,
         borderColor: '#DFE1E6',
         minHeight: 44,
-        maxHeight: 100,
+        maxHeight: 80,
         textAlignVertical: 'top',
     },
     postButton: {
         backgroundColor: '#0052CC',
-        paddingHorizontal: 20,
+        paddingHorizontal: 18,
         paddingVertical: 12,
-        borderRadius: 8,
-        minWidth: 70,
+        borderRadius: 12,
+        minWidth: 65,
         alignItems: 'center',
         justifyContent: 'center',
         height: 44,
+        shadowColor: '#0052CC',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 3,
     },
     postButtonDisabled: {
         backgroundColor: '#A5ADBA',
+        shadowOpacity: 0,
+        elevation: 0,
     },
     postButtonText: {
         color: '#fff',

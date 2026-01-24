@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View,
     Text,
@@ -11,6 +11,8 @@ import {
     Platform,
     FlatList,
     Modal,
+    Keyboard,
+    KeyboardEvent,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { StorageService } from '../services/storage';
@@ -38,9 +40,30 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
     const [hasMoreBoards, setHasMoreBoards] = useState(true);
     const [loadingMoreBoards, setLoadingMoreBoards] = useState(false);
     const [savingBoard, setSavingBoard] = useState(false);
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const scrollViewRef = useRef<ScrollView>(null);
+    const apiTokenRef = useRef<View>(null);
 
     useEffect(() => {
         loadCurrentConfig();
+
+        const keyboardWillShow = Keyboard.addListener(
+            Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+            (e: KeyboardEvent) => {
+                setKeyboardHeight(e.endCoordinates.height);
+            }
+        );
+        const keyboardWillHide = Keyboard.addListener(
+            Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+            () => {
+                setKeyboardHeight(0);
+            }
+        );
+
+        return () => {
+            keyboardWillShow.remove();
+            keyboardWillHide.remove();
+        };
     }, []);
 
     const loadCurrentConfig = async () => {
@@ -285,7 +308,12 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
                 <View style={styles.placeholder} />
             </View>
 
-            <ScrollView contentContainerStyle={styles.content}>
+            <ScrollView
+                ref={scrollViewRef}
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={true}
+            >
                 <View style={styles.form}>
                     <Text style={styles.sectionTitle}>Jira Configuration</Text>
 
@@ -313,17 +341,30 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
                         editable={!saving}
                     />
 
-                    <Text style={styles.label}>API Token</Text>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Your Jira API token"
-                        value={apiToken}
-                        onChangeText={setApiToken}
-                        secureTextEntry
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        editable={!saving}
-                    />
+                    <View ref={apiTokenRef}>
+                        <Text style={styles.label}>API Token</Text>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Your Jira API token"
+                            value={apiToken}
+                            onChangeText={setApiToken}
+                            secureTextEntry
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            editable={!saving}
+                            onFocus={() => {
+                                setTimeout(() => {
+                                    apiTokenRef.current?.measure((fx, fy, width, height, px, py) => {
+                                        const scrollY = py - 100;
+                                        scrollViewRef.current?.scrollTo({
+                                            y: Math.max(0, scrollY),
+                                            animated: true,
+                                        });
+                                    });
+                                }, 100);
+                            }}
+                        />
+                    </View>
 
                     <Text style={styles.helpText}>
                         Generate a new API token at:{'\n'}
@@ -540,6 +581,7 @@ const styles = StyleSheet.create({
     },
     content: {
         padding: 20,
+        paddingBottom: 100,
     },
     form: {
         backgroundColor: '#fff',

@@ -93,8 +93,11 @@ const styles = StyleSheet.create({
         color: '#0052CC',
     },
     subtitle: {
-        color: '#5E6C84',
+        color: '#FFFFFF',
         marginTop: 4,
-        fontWeight: '500',
+        fontWeight: '600',
+        textShadowColor: 'rgba(0, 0, 0, 0.3)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
     },
 });

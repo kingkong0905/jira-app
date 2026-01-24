@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     View,
     Text,
@@ -9,6 +9,8 @@ import {
     Alert,
     ActivityIndicator,
     Platform,
+    Keyboard,
+    KeyboardEvent,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,53 +23,53 @@ interface SetupScreenProps {
 }
 
 export default function SetupScreen({ onComplete }: SetupScreenProps) {
+    const [step, setStep] = useState(1); // 1 = API Token, 2 = Jira Info
     const [email, setEmail] = useState('');
     const [jiraUrl, setJiraUrl] = useState('');
     const [apiToken, setApiToken] = useState('');
     const [loading, setLoading] = useState(false);
+    const scrollViewRef = useRef<ScrollView>(null);
 
-    const validateInputs = (): boolean => {
-        if (!email.trim()) {
-            Alert.alert('Error', 'Please enter your email');
-            return false;
-        }
-
-        if (!jiraUrl.trim()) {
-            Alert.alert('Error', 'Please enter your Jira URL');
-            return false;
-        }
-
+    const handleStep1Next = () => {
         if (!apiToken.trim()) {
             Alert.alert('Error', 'Please enter your API token');
-            return false;
+            return;
+        }
+        setStep(2);
+    };
+
+    const handleStep2Submit = async () => {
+        // Validate email
+        if (!email.trim()) {
+            Alert.alert('Error', 'Please enter your email');
+            return;
         }
 
-        // Basic URL validation
+        // Validate Jira URL
+        if (!jiraUrl.trim()) {
+            Alert.alert('Error', 'Please enter your Jira URL');
+            return;
+        }
+
         try {
             new URL(jiraUrl);
         } catch {
             Alert.alert('Error', 'Please enter a valid URL (e.g., https://your-domain.atlassian.net)');
-            return false;
+            return;
         }
-
-        return true;
-    };
-
-    const handleSave = async () => {
-        if (!validateInputs()) return;
 
         setLoading(true);
         try {
             const config = {
                 email: email.trim(),
-                jiraUrl: jiraUrl.trim().replace(/\/$/, ''), // Remove trailing slash
+                jiraUrl: jiraUrl.trim().replace(/\/$/, ''),
                 apiToken: apiToken.trim(),
             };
 
             // Initialize API
             jiraApi.initialize(config);
 
-            // Skip connection test on web due to CORS restrictions
+            // Test connection
             if (Platform.OS !== 'web') {
                 const isConnected = await jiraApi.testConnection();
                 if (!isConnected) {
@@ -84,7 +86,7 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
             await StorageService.saveConfig(config);
 
             const successMessage = Platform.OS === 'web'
-                ? 'Configuration saved! Note: Due to browser CORS restrictions, you may need to use the mobile app for full functionality. On web, some features may be limited.'
+                ? 'Configuration saved! Note: Due to browser CORS restrictions, some features may be limited on web.'
                 : 'Configuration saved successfully!';
 
             Alert.alert('Success', successMessage, [
@@ -96,7 +98,7 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
         } catch (error) {
             console.error('Setup error:', error);
             const errorMessage = Platform.OS === 'web'
-                ? 'Failed to save configuration. Note: Web browsers have CORS restrictions that may prevent direct Jira API access. Consider using the mobile app.'
+                ? 'Failed to save configuration. Web browsers have CORS limitations. Please use the mobile app for best experience.'
                 : 'Failed to save configuration. Please try again.';
             Alert.alert('Error', errorMessage);
         } finally {
@@ -111,109 +113,147 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
                 colors={['#0052CC', '#4C9AFF', '#B3D4FF']}
                 style={styles.gradientBackground}
             >
-                <ScrollView contentContainerStyle={styles.scrollContent}>
+                <ScrollView
+                    ref={scrollViewRef}
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                >
                     <View style={styles.logoSection}>
                         <Logo size="large" showText={true} />
                     </View>
 
                     <View style={styles.formCard}>
-                        <Text style={styles.formTitle}>Get Started</Text>
-                        <Text style={styles.formSubtitle}>
-                            Connect to your Jira workspace
-                        </Text>
+                        {step === 1 ? (
+                            <>
+                                <Text style={styles.formTitle}>Step 1 of 2</Text>
+                                <Text style={styles.formSubtitle}>
+                                    Enter your API Token
+                                </Text>
 
-                        {Platform.OS === 'web' && (
-                            <View style={styles.webNotice}>
-                                <Text style={styles.webNoticeIcon}>⚠️</Text>
-                                <View style={styles.webNoticeContent}>
-                                    <Text style={styles.webNoticeTitle}>Web Limitation</Text>
-                                    <Text style={styles.webNoticeText}>
-                                        CORS restrictions apply. Use mobile app for full functionality.
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.label}>🔑 API Token</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <TextInput
+                                            style={styles.input}
+                                            placeholder="Your Jira API token"
+                                            placeholderTextColor="#A5ADBA"
+                                            value={apiToken}
+                                            onChangeText={setApiToken}
+                                            secureTextEntry
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                            autoFocus
+                                        />
+                                    </View>
+                                </View>
+
+                                <View style={styles.helpBox}>
+                                    <Text style={styles.helpIcon}>💡</Text>
+                                    <Text style={styles.helpText}>
+                                        Generate an API token at:{'\n'}
+                                        id.atlassian.com/manage-profile/security/api-tokens
                                     </Text>
                                 </View>
-                            </View>
-                        )}
 
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>📧 Email</Text>
-                            <View style={styles.inputWrapper}>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="your.email@example.com"
-                                    placeholderTextColor="#A5ADBA"
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                    editable={!loading}
-                                />
-                            </View>
-                        </View>
+                                <TouchableOpacity
+                                    style={styles.button}
+                                    onPress={handleStep1Next}
+                                    activeOpacity={0.8}
+                                >
+                                    <LinearGradient
+                                        colors={['#0052CC', '#003D99']}
+                                        start={{ x: 0, y: 0 }}
+                                        end={{ x: 1, y: 0 }}
+                                        style={styles.buttonGradient}
+                                    >
+                                        <Text style={styles.buttonText}>Next →</Text>
+                                    </LinearGradient>
+                                </TouchableOpacity>
+                            </>
+                        ) : (
+                            <>
+                                <TouchableOpacity
+                                    style={styles.backButton}
+                                    onPress={() => setStep(1)}
+                                >
+                                    <Text style={styles.backButtonText}>← Back</Text>
+                                </TouchableOpacity>
 
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>🔗 Jira URL</Text>
-                            <View style={styles.inputWrapper}>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="https://your-domain.atlassian.net"
-                                    placeholderTextColor="#A5ADBA"
-                                    value={jiraUrl}
-                                    onChangeText={setJiraUrl}
-                                    keyboardType="url"
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                    editable={!loading}
-                                />
-                            </View>
-                        </View>
+                                <Text style={styles.formTitle}>Step 2 of 2</Text>
+                                <Text style={styles.formSubtitle}>
+                                    Connect to your Jira workspace
+                                </Text>
 
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>🔑 API Token</Text>
-                            <View style={styles.inputWrapper}>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Your Jira API token"
-                                    placeholderTextColor="#A5ADBA"
-                                    value={apiToken}
-                                    onChangeText={setApiToken}
-                                    secureTextEntry
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                    editable={!loading}
-                                />
-                            </View>
-                        </View>
-
-                        <View style={styles.helpBox}>
-                            <Text style={styles.helpIcon}>💡</Text>
-                            <Text style={styles.helpText}>
-                                Generate an API token at id.atlassian.com
-                            </Text>
-                        </View>
-
-                        <TouchableOpacity
-                            style={[styles.button, loading && styles.buttonDisabled]}
-                            onPress={handleSave}
-                            disabled={loading}
-                            activeOpacity={0.8}
-                        >
-                            <LinearGradient
-                                colors={loading ? ['#999', '#666'] : ['#0052CC', '#003D99']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                                style={styles.buttonGradient}
-                            >
-                                {loading ? (
-                                    <View style={styles.buttonContent}>
-                                        <ActivityIndicator color="#fff" size="small" />
-                                        <Text style={styles.buttonTextLoading}>Connecting...</Text>
+                                {Platform.OS === 'web' && (
+                                    <View style={styles.webNotice}>
+                                        <Text style={styles.webNoticeIcon}>⚠️</Text>
+                                        <View style={styles.webNoticeContent}>
+                                            <Text style={styles.webNoticeTitle}>Web Limitation</Text>
+                                            <Text style={styles.webNoticeText}>
+                                                CORS restrictions apply. Use mobile app for full functionality.
+                                            </Text>
+                                        </View>
                                     </View>
-                                ) : (
-                                    <Text style={styles.buttonText}>🚀 Let's Go!</Text>
                                 )}
-                            </LinearGradient>
-                        </TouchableOpacity>
+
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.label}>📧 Email</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <TextInput
+                                            style={styles.input}
+                                            placeholder="your.email@example.com"
+                                            placeholderTextColor="#A5ADBA"
+                                            value={email}
+                                            onChangeText={setEmail}
+                                            keyboardType="email-address"
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                            editable={!loading}
+                                        />
+                                    </View>
+                                </View>
+
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.label}>🔗 Jira URL</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <TextInput
+                                            style={styles.input}
+                                            placeholder="https://your-domain.atlassian.net"
+                                            placeholderTextColor="#A5ADBA"
+                                            value={jiraUrl}
+                                            onChangeText={setJiraUrl}
+                                            keyboardType="url"
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                            editable={!loading}
+                                        />
+                                    </View>
+                                </View>
+
+                                <TouchableOpacity
+                                    style={[styles.button, loading && styles.buttonDisabled]}
+                                    onPress={handleStep2Submit}
+                                    disabled={loading}
+                                    activeOpacity={0.8}
+                                >
+                                    <LinearGradient
+                                        colors={loading ? ['#999', '#666'] : ['#0052CC', '#003D99']}
+                                        start={{ x: 0, y: 0 }}
+                                        end={{ x: 1, y: 0 }}
+                                        style={styles.buttonGradient}
+                                    >
+                                        {loading ? (
+                                            <View style={styles.buttonContent}>
+                                                <ActivityIndicator color="#fff" size="small" />
+                                                <Text style={styles.buttonTextLoading}>Connecting...</Text>
+                                            </View>
+                                        ) : (
+                                            <Text style={styles.buttonText}>🚀 Let's Go!</Text>
+                                        )}
+                                    </LinearGradient>
+                                </TouchableOpacity>
+                            </>
+                        )}
                     </View>
                 </ScrollView>
             </LinearGradient>
@@ -229,13 +269,12 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     scrollContent: {
-        flexGrow: 1,
-        padding: 20,
-        paddingTop: 60,
+        paddingTop: 20,
+        paddingBottom: 100,
     },
     logoSection: {
         alignItems: 'center',
-        marginBottom: 40,
+        marginBottom: 20,
     },
     formCard: {
         backgroundColor: '#FFFFFF',
@@ -256,7 +295,8 @@ const styles = StyleSheet.create({
     },
     formSubtitle: {
         fontSize: 16,
-        color: '#5E6C84',
+        color: '#172B4D',
+        fontWeight: '500',
         textAlign: 'center',
         marginBottom: 24,
     },
@@ -306,6 +346,17 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 8,
         elevation: 6,
+    },
+    backButton: {
+        alignSelf: 'flex-start',
+        marginBottom: 16,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+    },
+    backButtonText: {
+        color: '#0052CC',
+        fontSize: 16,
+        fontWeight: '600',
     },
     buttonDisabled: {
         opacity: 0.6,
