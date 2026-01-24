@@ -901,7 +901,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 ) : (
                     <FlatList
                         data={groupedBySprintIssues}
-                        keyExtractor={(item) => item.sprintId?.toString() || 'backlog'}
+                        keyExtractor={(item, index) => item.sprintId ? `sprint-${item.sprintId}` : `backlog-${index}`}
                         renderItem={({ item: group }) => (
                             <View style={styles.statusGroup}>
                                 <View style={[styles.sprintGroupHeader]}>
