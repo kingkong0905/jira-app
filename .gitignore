@@ -1,0 +1,28 @@
+node_modules/
+.expo/
+dist/
+npm-debug.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
+# macOS
+.DS_Store
+
+# Temporary files created by Metro to check the health of the file watcher
+.metro-health-check*
+.expo
+.env.local
+.env.*.local
+android/local.properties
+android/.gradle/
+android/app/build/
+android/captures/
+ios/Pods/
+ios/build/
+ios/*.xcworkspace
+ios/DerivedData/
