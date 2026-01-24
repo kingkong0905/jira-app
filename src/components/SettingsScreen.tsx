@@ -10,6 +10,7 @@ import {
     ActivityIndicator,
     Platform,
     FlatList,
+    Modal,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { StorageService } from '../services/storage';
@@ -351,101 +352,15 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
 
                         <TouchableOpacity
                             style={styles.dropdownButton}
-                            onPress={() => setIsBoardDropdownExpanded(!isBoardDropdownExpanded)}
+                            onPress={() => setIsBoardDropdownExpanded(true)}
                         >
                             <Text style={styles.dropdownButtonText}>
                                 {tempSelectedBoardId
                                     ? boards.find(b => b.id === tempSelectedBoardId)?.name || 'Select a board'
                                     : 'Select a board'}
                             </Text>
-                            <Text style={styles.dropdownIcon}>
-                                {isBoardDropdownExpanded ? '▲' : '▼'}
-                            </Text>
+                            <Text style={styles.dropdownIcon}>▼</Text>
                         </TouchableOpacity>
-
-                        {isBoardDropdownExpanded && (
-                            <View style={styles.dropdownContent}>
-                                <View style={styles.searchContainer}>
-                                    <Text style={styles.searchIcon}>🔍</Text>
-                                    <TextInput
-                                        style={styles.searchInput}
-                                        placeholder="Search boards..."
-                                        value={boardSearchQuery}
-                                        onChangeText={handleBoardSearch}
-                                        autoCapitalize="none"
-                                        autoCorrect={false}
-                                    />
-                                    {boardSearchQuery.length > 0 && (
-                                        <TouchableOpacity
-                                            onPress={() => handleBoardSearch('')}
-                                            style={styles.clearButton}
-                                        >
-                                            <Text style={styles.clearButtonText}>✕</Text>
-                                        </TouchableOpacity>
-                                    )}
-                                </View>
-
-                                {loadingBoards ? (
-                                    <ActivityIndicator color="#0052CC" style={styles.loader} />
-                                ) : boards.length > 0 ? (
-                                    <>
-                                        <FlatList
-                                            data={boards}
-                                            keyExtractor={(item) => item.id.toString()}
-                                            scrollEnabled={true}
-                                            style={styles.boardList}
-                                            nestedScrollEnabled={true}
-                                            onEndReached={loadMoreBoards}
-                                            onEndReachedThreshold={0.5}
-                                            renderItem={({ item }) => (
-                                                <TouchableOpacity
-                                                    style={[
-                                                        styles.boardItem,
-                                                        tempSelectedBoardId === item.id && styles.boardItemSelected,
-                                                    ]}
-                                                    onPress={() => handleBoardItemSelect(item.id)}
-                                                >
-                                                    <View style={styles.boardItemContent}>
-                                                        <Text style={[
-                                                            styles.boardName,
-                                                            tempSelectedBoardId === item.id && styles.boardNameSelected,
-                                                        ]}>
-                                                            {defaultBoardId === item.id && '⭐ '}{item.name}
-                                                        </Text>
-                                                        {item.location?.projectName && (
-                                                            <Text style={styles.boardProject}>
-                                                                {item.location.projectName}
-                                                            </Text>
-                                                        )}
-                                                    </View>
-                                                    {tempSelectedBoardId === item.id && (
-                                                        <Text style={styles.checkmark}>✓</Text>
-                                                    )}
-                                                </TouchableOpacity>
-                                            )}
-                                            ListFooterComponent={() => {
-                                                if (loadingMoreBoards) {
-                                                    return (
-                                                        <View style={styles.loadingMoreContainer}>
-                                                            <ActivityIndicator size="small" color="#0052CC" />
-                                                            <Text style={styles.loadingMoreText}>Loading more...</Text>
-                                                        </View>
-                                                    );
-                                                }
-                                                if (!hasMoreBoards && boards.length > 0) {
-                                                    return (
-                                                        <Text style={styles.endOfListText}>No more boards</Text>
-                                                    );
-                                                }
-                                                return null;
-                                            }}
-                                        />
-                                    </>
-                                ) : (
-                                    <Text style={styles.noResultsText}>No boards found</Text>
-                                )}
-                            </View>
-                        )}
 
                         {tempSelectedBoardId !== defaultBoardId && (
                             <TouchableOpacity
@@ -478,6 +393,111 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
                     <Text style={styles.versionText}>Jira Manager v1.0.0</Text>
                 </View>
             </ScrollView>
+
+            {/* Board Picker Modal */}
+            <Modal
+                visible={isBoardDropdownExpanded}
+                transparent={true}
+                animationType="slide"
+                onRequestClose={() => setIsBoardDropdownExpanded(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.boardModalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Select Default Board</Text>
+                            <TouchableOpacity
+                                onPress={() => setIsBoardDropdownExpanded(false)}
+                                style={styles.modalCloseButton}
+                            >
+                                <Text style={styles.modalCloseText}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.searchContainer}>
+                            <Text style={styles.searchIcon}>🔍</Text>
+                            <TextInput
+                                style={styles.modalSearchInput}
+                                placeholder="Search boards..."
+                                value={boardSearchQuery}
+                                onChangeText={handleBoardSearch}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                            />
+                            {boardSearchQuery.length > 0 && (
+                                <TouchableOpacity
+                                    onPress={() => handleBoardSearch('')}
+                                    style={styles.clearButton}
+                                >
+                                    <Text style={styles.clearButtonText}>✕</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+
+                        {loadingBoards ? (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator size="large" color="#0052CC" />
+                            </View>
+                        ) : boards.length > 0 ? (
+                            <FlatList
+                                data={boards}
+                                keyExtractor={(item) => item.id.toString()}
+                                style={styles.boardListModal}
+                                onEndReached={loadMoreBoards}
+                                onEndReachedThreshold={0.5}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.boardModalItem,
+                                            tempSelectedBoardId === item.id && styles.boardModalItemSelected,
+                                        ]}
+                                        onPress={() => {
+                                            handleBoardItemSelect(item.id);
+                                            setIsBoardDropdownExpanded(false);
+                                        }}
+                                    >
+                                        <View style={styles.boardItemContent}>
+                                            <Text style={[
+                                                styles.boardName,
+                                                tempSelectedBoardId === item.id && styles.boardNameSelected,
+                                            ]}>
+                                                {defaultBoardId === item.id && '⭐ '}{item.name}
+                                            </Text>
+                                            {item.location?.projectName && (
+                                                <Text style={styles.boardProject}>
+                                                    {item.location.projectName}
+                                                </Text>
+                                            )}
+                                        </View>
+                                        {tempSelectedBoardId === item.id && (
+                                            <Text style={styles.checkmark}>✓</Text>
+                                        )}
+                                    </TouchableOpacity>
+                                )}
+                                ListFooterComponent={() => {
+                                    if (loadingMoreBoards) {
+                                        return (
+                                            <View style={styles.loadingMoreContainer}>
+                                                <ActivityIndicator size="small" color="#0052CC" />
+                                                <Text style={styles.loadingMoreText}>Loading more...</Text>
+                                            </View>
+                                        );
+                                    }
+                                    if (!hasMoreBoards && boards.length > 0) {
+                                        return (
+                                            <Text style={styles.endOfListText}>No more boards</Text>
+                                        );
+                                    }
+                                    return null;
+                                }}
+                            />
+                        ) : (
+                            <View style={styles.emptyContainer}>
+                                <Text style={styles.noResultsText}>No boards found</Text>
+                            </View>
+                        )}
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -686,6 +706,67 @@ const styles = StyleSheet.create({
         fontSize: 20,
         color: '#0052CC',
         fontWeight: 'bold',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'flex-end',
+    },
+    boardModalContent: {
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        maxHeight: '80%',
+        paddingBottom: 20,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E0E0E0',
+    },
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#172B4D',
+    },
+    modalCloseButton: {
+        padding: 5,
+    },
+    modalCloseText: {
+        fontSize: 24,
+        color: '#5E6C84',
+        fontWeight: '300',
+    },
+    modalSearchInput: {
+        flex: 1,
+        fontSize: 16,
+        color: '#172B4D',
+    },
+    loadingContainer: {
+        padding: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    boardListModal: {
+        maxHeight: '100%',
+    },
+    boardModalItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F4F5F7',
+    },
+    boardModalItemSelected: {
+        backgroundColor: '#E6F2FF',
+    },
+    emptyContainer: {
+        padding: 40,
+        alignItems: 'center',
     },
     label: {
         fontSize: 16,

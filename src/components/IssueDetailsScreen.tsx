@@ -58,7 +58,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     const [showPriorityPicker, setShowPriorityPicker] = useState(false);
     const [availablePriorities, setAvailablePriorities] = useState<any[]>([]);
     const [loadingPriorities, setLoadingPriorities] = useState(false);
-    const [updatingPriority, setUpdatingPriority] = useState(false);
+    const [updatingPriorityId, setUpdatingPriorityId] = useState<string | null>(null);
     const [showDueDatePicker, setShowDueDatePicker] = useState(false);
     const [selectedDueDate, setSelectedDueDate] = useState<Date | null>(null);
     const [updatingDueDate, setUpdatingDueDate] = useState(false);
@@ -676,7 +676,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
 
     const handleUpdatePriority = async (priorityId: string, priorityName: string) => {
         try {
-            setUpdatingPriority(true);
+            setUpdatingPriorityId(priorityId);
             await jiraApi.updateIssueField(issueKey, { priority: { id: priorityId } });
             await loadIssueDetails();
             setShowPriorityPicker(false);
@@ -685,7 +685,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
             console.error('Error updating priority:', error);
             Alert.alert('Error', error?.response?.data?.errorMessages?.[0] || 'Failed to change priority');
         } finally {
-            setUpdatingPriority(false);
+            setUpdatingPriorityId(null);
         }
     };
 
@@ -1941,7 +1941,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                             key={priority.id}
                                             style={styles.statusItem}
                                             onPress={() => handleUpdatePriority(priority.id, priority.name)}
-                                            disabled={updatingPriority}
+                                            disabled={updatingPriorityId !== null}
                                         >
                                             <View style={styles.statusItemContent}>
                                                 <Text style={styles.priorityEmoji}>
@@ -1949,7 +1949,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                                 </Text>
                                                 <Text style={styles.statusName}>{priority.name}</Text>
                                             </View>
-                                            {updatingPriority && (
+                                            {updatingPriorityId === priority.id && (
                                                 <ActivityIndicator size="small" color="#0052CC" />
                                             )}
                                         </TouchableOpacity>
