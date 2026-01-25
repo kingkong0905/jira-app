@@ -20,6 +20,7 @@ import { JiraIssue, JiraBoard, JiraSprint } from '../types/jira';
 import IssueCard from './IssueCard';
 import Logo from './Logo';
 import IssueDetailsScreen from './IssueDetailsScreen';
+import CreateIssueScreen from './CreateIssueScreen';
 
 interface HomeScreenProps {
     onOpenSettings: () => void;
@@ -49,6 +50,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
     const [savedDefaultBoardId, setSavedDefaultBoardId] = useState<number | null>(null);
     const [isBoardDropdownExpanded, setIsBoardDropdownExpanded] = useState(false);
     const [boardAssignees, setBoardAssignees] = useState<Array<{ key: string, name: string }>>([]);
+    const [showCreateIssue, setShowCreateIssue] = useState(false);
     const boardListRef = useRef<FlatList>(null);
 
     useEffect(() => {
@@ -506,6 +508,37 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         setSelectedIssueKey(null);
     };
 
+    const handleCreateIssue = () => {
+        if (!selectedBoard) {
+            Alert.alert('No Board Selected', 'Please select a board first');
+            return;
+        }
+        setShowCreateIssue(true);
+    };
+
+    const handleBackFromCreate = () => {
+        setShowCreateIssue(false);
+    };
+
+    const handleIssueCreated = async () => {
+        setShowCreateIssue(false);
+        if (selectedBoard) {
+            await handleRefresh();
+        }
+    };
+
+    // Show create issue screen
+    if (showCreateIssue && selectedBoard) {
+        return (
+            <CreateIssueScreen
+                boardId={selectedBoard.id}
+                projectId={selectedBoard.location?.projectKey}
+                onBack={handleBackFromCreate}
+                onIssueCreated={handleIssueCreated}
+            />
+        );
+    }
+
     // Show issue details screen if an issue is selected
     if (selectedIssueKey) {
         return (
@@ -765,6 +798,13 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                     return include;
                                 }).length : 0)})
                             </Text>
+                            <TouchableOpacity
+                                style={styles.createButton}
+                                onPress={handleCreateIssue}
+                            >
+                                <Text style={styles.createButtonIcon}>+</Text>
+                                <Text style={styles.createButtonText}>Create</Text>
+                            </TouchableOpacity>
                         </View>
                     </>
                 )}
@@ -1433,5 +1473,29 @@ const styles = StyleSheet.create({
     emptySubtext: {
         fontSize: 14,
         color: '#999',
+    },
+    createButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#0052CC',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        shadowColor: '#0052CC',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 3,
+        elevation: 3,
+    },
+    createButtonIcon: {
+        color: '#fff',
+        fontSize: 20,
+        fontWeight: '700',
+        marginRight: 4,
+    },
+    createButtonText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: '700',
     },
 });

@@ -343,15 +343,17 @@ class JiraApiService {
     async searchIssues(jql: string, maxResults: number = 50): Promise<JiraIssue[]> {
         try {
             const api = this.getAxiosInstance();
-            const response = await api.post('/rest/api/3/search', {
+            const response = await api.post('/rest/api/3/search/jql', {
                 jql,
                 maxResults,
                 fields: ['summary', 'description', 'status', 'priority', 'assignee', 'issuetype', 'created', 'updated'],
             });
             return response.data.issues || [];
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error searching issues:', error);
-            throw error;
+            console.error('JQL query:', jql);
+            console.error('Error response:', error?.response?.data);
+            return []; // Return empty array instead of throwing
         }
     }
 
@@ -416,6 +418,28 @@ class JiraApiService {
         } catch (error) {
             console.error('Error fetching assignable users:', error);
             throw error;
+        }
+    }
+
+    async getAssignableUsersForProject(projectKey: string, query?: string): Promise<Array<{
+        accountId: string;
+        displayName: string;
+        emailAddress?: string;
+        avatarUrls: { '48x48': string };
+    }>> {
+        try {
+            const api = this.getAxiosInstance();
+            const response = await api.get(`/rest/api/3/user/assignable/search`, {
+                params: {
+                    project: projectKey,
+                    query,
+                    maxResults: 100,
+                },
+            });
+            return response.data || [];
+        } catch (error) {
+            console.error('Error fetching assignable users for project:', error);
+            return []; // Return empty array instead of throwing
         }
     }
 
@@ -524,6 +548,117 @@ class JiraApiService {
         } catch (error) {
             console.error('Error updating issue field:', error);
             throw error;
+        }
+    }
+
+    async createIssue(projectId: string, data: {
+        issueType: string;
+        summary: string;
+        description?: string;
+        assignee?: string | null;
+        dueDate?: string;
+        storyPoints?: number;
+        sprintId?: number;
+        parent?: string;
+    }): Promise<any> {
+        try {
+            const api = this.getAxiosInstance();
+
+            const fields: any = {
+                project: { key: projectId },
+                issuetype: { id: data.issueType },
+                summary: data.summary,
+            };
+
+            // Add parent if provided
+            if (data.parent) {
+                fields.parent = { key: data.parent };
+            }
+
+            // Add description if provided
+            if (data.description) {
+                // Strip HTML tags from rich text editor
+                const plainText = data.description.replace(/<[^>]*>/g, '').trim();
+                if (plainText) {
+                    fields.description = {
+                        type: 'doc',
+                        version: 1,
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: plainText,
+                                    },
+                                ],
+                            },
+                        ],
+                    };
+                }
+            }
+
+            // Add assignee
+            if (data.assignee) {
+                fields.assignee = { accountId: data.assignee };
+            } else {
+                fields.assignee = null; // Unassigned
+            }
+
+            // Add due date
+            if (data.dueDate) {
+                fields.duedate = data.dueDate; // Format: YYYY-MM-DD
+            }
+
+            // Add story points (custom field)
+            if (data.storyPoints !== undefined) {
+                fields.customfield_10016 = data.storyPoints;
+            }
+
+            const payload = { fields };
+
+            console.log('Creating issue with payload:', JSON.stringify(payload, null, 2));
+            const response = await api.post('/rest/api/3/issue', payload);
+
+            // If sprint is specified, add issue to sprint
+            if (data.sprintId && response.data.key) {
+                try {
+                    await api.post(`/rest/agile/1.0/sprint/${data.sprintId}/issue`, {
+                        issues: [response.data.key],
+                    });
+                    console.log(`Added issue ${response.data.key} to sprint ${data.sprintId}`);
+                } catch (sprintError) {
+                    console.error('Error adding issue to sprint:', sprintError);
+                    // Don't throw - issue was created successfully
+                }
+            }
+
+            return response.data;
+        } catch (error) {
+            console.error('Error creating issue:', error);
+            throw error;
+        }
+    }
+
+    async getProjectForBoard(boardId: number): Promise<any> {
+        try {
+            const api = this.getAxiosInstance();
+            const response = await api.get(`/rest/agile/1.0/board/${boardId}/configuration`);
+            return response.data?.location;
+        } catch (error) {
+            console.error('Error fetching project for board:', error);
+            return null;
+        }
+    }
+
+    async getIssueTypesForProject(projectId: string): Promise<any[]> {
+        try {
+            const api = this.getAxiosInstance();
+            const response = await api.get(`/rest/api/3/project/${projectId}`);
+            return response.data?.issueTypes || [];
+        } catch (error) {
+            console.error('Error fetching issue types:', error);
+            return [];
         }
     }
 

@@ -22,6 +22,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { JiraIssue, JiraComment, JiraAttachment, JiraUser } from '../types/jira';
 import { jiraApi } from '../services/jiraApi';
 import { formatDate, formatDateOnly } from '../utils/helpers';
+import { linkifyText } from '../utils/linkify';
 
 interface IssueDetailsScreenProps {
     issueKey: string;
@@ -368,25 +369,9 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
         // Handle both simple string and ADF (Atlassian Document Format) content
         if (typeof comment.body === 'string') {
             // Parse plain text for URLs and make them clickable
-            const urlRegex = /(https?:\/\/[^\s]+)/g;
-            const parts = comment.body.split(urlRegex);
-
             return (
                 <Text style={styles.commentBody}>
-                    {parts.map((part: string, index: number) => {
-                        if (part.match(urlRegex)) {
-                            return (
-                                <Text
-                                    key={index}
-                                    style={styles.linkText}
-                                    onPress={() => Linking.openURL(part)}
-                                >
-                                    {part}
-                                </Text>
-                            );
-                        }
-                        return <Text key={index}>{part}</Text>;
-                    })}
+                    {linkifyText(comment.body, { linkStyle: styles.linkText })}
                 </Text>
             );
         }
@@ -414,23 +399,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                     }
 
                                     // Also check for plain URLs in text and linkify them
-                                    const urlRegex = /(https?:\/\/[^\s]+)/g;
-                                    const textParts = (item.text || '').split(urlRegex);
-
-                                    return textParts.map((part: string, partIndex: number) => {
-                                        if (part.match(urlRegex)) {
-                                            return (
-                                                <Text
-                                                    key={`${itemIndex}-${partIndex}`}
-                                                    style={styles.linkText}
-                                                    onPress={() => Linking.openURL(part)}
-                                                >
-                                                    {part}
-                                                </Text>
-                                            );
-                                        }
-                                        return <Text key={`${itemIndex}-${partIndex}`}>{part}</Text>;
-                                    });
+                                    return linkifyText(item.text || '', { linkStyle: styles.linkText });
                                 } else if (item.type === 'mention') {
                                     return (
                                         <Text key={itemIndex} style={styles.mentionText}>
