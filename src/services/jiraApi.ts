@@ -633,6 +633,40 @@ class JiraApiService {
         }
     }
 
+    async updateSprint(sprintId: number, name: string, goal?: string, startDate?: string, endDate?: string): Promise<JiraSprint> {
+        try {
+            const api = this.getAxiosInstance();
+            const data: any = { name };
+
+            if (goal !== undefined) data.goal = goal;
+            if (startDate) data.startDate = startDate;
+            if (endDate) data.endDate = endDate;
+
+            const response = await api.put(`/rest/agile/1.0/sprint/${sprintId}`, data);
+
+            // Clear cache
+            this.clearCache();
+
+            return response.data;
+        } catch (error) {
+            console.error('Error updating sprint:', error);
+            throw error;
+        }
+    }
+
+    async deleteSprint(sprintId: number): Promise<void> {
+        try {
+            const api = this.getAxiosInstance();
+            await api.delete(`/rest/agile/1.0/sprint/${sprintId}`);
+
+            // Clear cache
+            this.clearCache();
+        } catch (error) {
+            console.error('Error deleting sprint:', error);
+            throw error;
+        }
+    }
+
     async fetchAttachment(url: string): Promise<string> {
         try {
             const api = this.getAxiosInstance();

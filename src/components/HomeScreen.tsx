@@ -11,10 +11,8 @@ import {
     Platform,
     TextInput,
     ScrollView,
-    Modal,
     Image,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { jiraApi } from '../services/jiraApi';
@@ -26,6 +24,11 @@ import IssueDetailsScreen from './IssueDetailsScreen';
 import CreateIssueScreen from './CreateIssueScreen';
 import { SkeletonList, SkeletonLoader } from './shared/SkeletonLoader';
 import { FadeInView } from './shared/FadeInView';
+import { SprintOptionsModal } from './sprint/SprintOptionsModal';
+import { CreateSprintModal } from './sprint/CreateSprintModal';
+import { UpdateSprintModal } from './sprint/UpdateSprintModal';
+import { AssigneeFilter } from './filters/AssigneeFilter';
+import { useSprints } from '../hooks/useSprints';
 
 interface HomeScreenProps {
     onOpenSettings: () => void;
@@ -57,16 +60,21 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
     const [boardAssignees, setBoardAssignees] = useState<Array<{ key: string, name: string }>>([]);
     const [showCreateIssue, setShowCreateIssue] = useState(false);
     const [filteringIssues, setFilteringIssues] = useState(false);
-    const [showCreateSprint, setShowCreateSprint] = useState(false);
-    const [newSprintName, setNewSprintName] = useState('');
-    const [newSprintGoal, setNewSprintGoal] = useState('');
-    const [newSprintStartDate, setNewSprintStartDate] = useState<Date | null>(null);
-    const [newSprintEndDate, setNewSprintEndDate] = useState<Date | null>(null);
-    const [creatingSprint, setCreatingSprint] = useState(false);
-    const [showStartDatePicker, setShowStartDatePicker] = useState(false);
-    const [showEndDatePicker, setShowEndDatePicker] = useState(false);
     const [collapsedSprints, setCollapsedSprints] = useState<Set<string>>(new Set());
+    const [boardTypeFilter, setBoardTypeFilter] = useState<'all' | 'scrum' | 'kanban'>('all');
+    const [searchingBoards, setSearchingBoards] = useState(false);
     const boardListRef = useRef<FlatList>(null);
+    const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Sprint management with custom hook
+    const sprintManager = useSprints({
+        boardId: selectedBoard?.id || null,
+        onRefresh: async () => {
+            if (selectedBoard) {
+                await loadIssuesForBoard(selectedBoard.id);
+            }
+        },
+    });
 
     useEffect(() => {
         initializeAndLoadData();
@@ -168,9 +176,25 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
 
     const handleBoardSearch = async (query: string) => {
         setSearchQuery(query);
-        setBoardsStartAt(0);
-        setHasMoreBoards(true);
-        await loadBoards(true, query);
+
+        // Clear any existing timeout
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+        }
+
+        // Reset filter when searching
+        if (query.trim()) {
+            setBoardTypeFilter('all');
+        }
+
+        // Debounce search
+        searchTimeoutRef.current = setTimeout(async () => {
+            setBoardsStartAt(0);
+            setHasMoreBoards(true);
+            setSearchingBoards(true);
+            await loadBoards(true, query);
+            setSearchingBoards(false);
+        }, 300);
     };
 
     const loadMoreBoards = async () => {
@@ -179,6 +203,12 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         setLoadingMoreBoards(true);
         await loadBoards(false);
         setLoadingMoreBoards(false);
+    };
+
+    const handleBoardTypeFilterChange = async (filter: 'all' | 'scrum' | 'kanban') => {
+        setBoardTypeFilter(filter);
+        // If there's a search query, re-search with the new filter
+        // Otherwise, the filter will work client-side on already loaded boards
     };
 
     const loadIssuesForBoard = async (boardId: number, targetTab?: TabType, assigneeFilter?: string) => {
@@ -460,6 +490,8 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         const groups: {
             sprint: string,
             sprintId: number | null,
+            startDate?: string,
+            endDate?: string,
             data: JiraIssue[]
         }[] = [];
         const addedIssueKeys = new Set<string>();
@@ -467,7 +499,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         // Get active sprint ID
         const activeSprintId = activeSprint?.id;
 
-        // Add active sprint at the top if it has issues
+        // Add active sprint at the top (always show, even if empty)
         if (activeSprintId) {
             const activeSprintIssues = filteredIssues.filter(issue => {
                 if (issue.fields.sprint && issue.fields.sprint.id === activeSprintId && !addedIssueKeys.has(issue.key)) {
@@ -476,19 +508,24 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 }
                 return false;
             });
-            if (activeSprintIssues.length > 0) {
-                groups.push({
-                    sprint: activeSprint.name,
-                    sprintId: activeSprint.id,
-                    data: activeSprintIssues,
-                });
-            }
+            groups.push({
+                sprint: activeSprint.name,
+                sprintId: activeSprint.id,
+                startDate: activeSprint.startDate,
+                endDate: activeSprint.endDate,
+                data: activeSprintIssues,
+            });
         }
 
         // Group by other sprints (excluding active sprint to avoid duplication)
-        // Sort sprints: upcoming sprints by start date
+        // Only show upcoming sprints (exclude closed/completed sprints)
         const otherSprints = sprints
-            .filter(sprint => !activeSprintId || sprint.id !== activeSprintId)
+            .filter(sprint => {
+                // Exclude active sprint (already shown above)
+                if (activeSprintId && sprint.id === activeSprintId) return false;
+                // Only include future sprints, exclude closed/completed sprints
+                return sprint.state === 'future';
+            })
             .sort((a, b) => {
                 // Sort by start date if available
                 if (a.startDate && b.startDate) {
@@ -507,13 +544,14 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 }
                 return false;
             });
-            if (sprintIssues.length > 0) {
-                groups.push({
-                    sprint: sprint.name,
-                    sprintId: sprint.id,
-                    data: sprintIssues,
-                });
-            }
+            // Always show sprint, even if empty
+            groups.push({
+                sprint: sprint.name,
+                sprintId: sprint.id,
+                startDate: sprint.startDate,
+                endDate: sprint.endDate,
+                data: sprintIssues,
+            });
         });
 
         // Add backlog issues (exclude Done status and issues already in sprints)
@@ -561,6 +599,14 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
     const handleIssuePress = React.useCallback((issueKey: string) => {
         setSelectedIssueKey(issueKey);
     }, []);
+
+    const handleCreateSprintPress = () => {
+        if (!selectedBoard) {
+            Alert.alert('No Board Selected', 'Please select a board first');
+            return;
+        }
+        sprintManager.setShowCreateModal(true);
+    };
 
     const handleCompleteSprint = async () => {
         if (!activeSprint) return;
@@ -645,90 +691,6 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         setShowCreateIssue(false);
         if (selectedBoard) {
             await handleRefresh();
-        }
-    };
-
-    const handleCreateSprintPress = () => {
-        if (!selectedBoard) {
-            Alert.alert('No Board Selected', 'Please select a board first');
-            return;
-        }
-        setNewSprintName('');
-        setNewSprintGoal('');
-        setNewSprintStartDate(null);
-        setNewSprintEndDate(null);
-        setShowCreateSprint(true);
-    };
-
-    const handleCreateSprint = async () => {
-        console.log('=== handleCreateSprint called ===');
-        console.log('selectedBoard:', selectedBoard?.id);
-        console.log('newSprintName:', newSprintName);
-        console.log('newSprintStartDate:', newSprintStartDate);
-        console.log('newSprintEndDate:', newSprintEndDate);
-
-        if (!selectedBoard) {
-            console.log('No board selected - returning');
-            return;
-        }
-
-        if (!newSprintName.trim()) {
-            console.log('Sprint name validation failed');
-            Alert.alert('Validation Error', 'Please enter a sprint name');
-            return;
-        }
-
-        if (!newSprintStartDate) {
-            console.log('Start date validation failed');
-            Alert.alert('Validation Error', 'Please select a start date');
-            return;
-        }
-
-        if (!newSprintEndDate) {
-            console.log('End date validation failed');
-            Alert.alert('Validation Error', 'Please select an end date');
-            return;
-        }
-
-        if (newSprintStartDate >= newSprintEndDate) {
-            console.log('Date range validation failed');
-            Alert.alert('Validation Error', 'End date must be after start date');
-            return;
-        }
-
-        console.log('All validations passed - creating sprint');
-        setCreatingSprint(true);
-        try {
-            const startDateString = newSprintStartDate.toISOString();
-            const endDateString = newSprintEndDate.toISOString();
-
-            console.log('Calling API with:', {
-                boardId: selectedBoard.id,
-                name: newSprintName.trim(),
-                goal: newSprintGoal.trim() || undefined,
-                startDate: startDateString,
-                endDate: endDateString
-            });
-
-            await jiraApi.createSprint(
-                selectedBoard.id,
-                newSprintName.trim(),
-                newSprintGoal.trim() || undefined,
-                startDateString,
-                endDateString
-            );
-
-            console.log('Sprint created successfully');
-            setShowCreateSprint(false);
-            Alert.alert('Success', 'Sprint created successfully');
-
-            // Reload board data to show new sprint
-            await loadIssuesForBoard(selectedBoard.id, 'backlog');
-        } catch (error: any) {
-            console.error('Error creating sprint:', error);
-            Alert.alert('Error', error?.response?.data?.errorMessages?.[0] || 'Failed to create sprint');
-        } finally {
-            setCreatingSprint(false);
         }
     };
 
@@ -845,25 +807,58 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
 
                     {isBoardDropdownExpanded && (
                         <View style={styles.boardDropdownPanel}>
-                            <View style={styles.searchContainer}>
-                                <Text style={styles.searchIcon}>🔍</Text>
-                                <TextInput
-                                    style={styles.searchInput}
-                                    placeholder="Search boards..."
-                                    placeholderTextColor="#A5ADBA"
-                                    value={searchQuery}
-                                    onChangeText={handleBoardSearch}
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                                {searchQuery.length > 0 && (
-                                    <TouchableOpacity onPress={() => handleBoardSearch('')} style={styles.clearButton}>
-                                        <Text style={styles.clearButtonText}>✕</Text>
+                            <View style={styles.boardPanelHeader}>
+                                <View style={styles.searchContainer}>
+                                    <Text style={styles.searchIcon}>🔍</Text>
+                                    <TextInput
+                                        style={styles.searchInput}
+                                        placeholder="Search boards..."
+                                        placeholderTextColor="#A5ADBA"
+                                        value={searchQuery}
+                                        onChangeText={handleBoardSearch}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                    />
+                                    {searchQuery.length > 0 && (
+                                        <TouchableOpacity onPress={() => handleBoardSearch('')} style={styles.clearButton}>
+                                            <Text style={styles.clearButtonText}>✕</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                                <View style={styles.filterChipsContainer}>
+                                    <TouchableOpacity
+                                        style={[styles.filterChipSmall, boardTypeFilter === 'all' && styles.filterChipSmallActive]}
+                                        onPress={() => handleBoardTypeFilterChange('all')}
+                                    >
+                                        <Text style={[styles.filterChipSmallText, boardTypeFilter === 'all' && styles.filterChipSmallTextActive]}>
+                                            📊 All
+                                        </Text>
                                     </TouchableOpacity>
-                                )}
+                                    <TouchableOpacity
+                                        style={[styles.filterChipSmall, boardTypeFilter === 'scrum' && styles.filterChipSmallActive]}
+                                        onPress={() => handleBoardTypeFilterChange('scrum')}
+                                    >
+                                        <Text style={[styles.filterChipSmallText, boardTypeFilter === 'scrum' && styles.filterChipSmallTextActive]}>
+                                            🏃 Scrum
+                                        </Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.filterChipSmall, boardTypeFilter === 'kanban' && styles.filterChipSmallActive]}
+                                        onPress={() => handleBoardTypeFilterChange('kanban')}
+                                    >
+                                        <Text style={[styles.filterChipSmallText, boardTypeFilter === 'kanban' && styles.filterChipSmallTextActive]}>
+                                            📋 Kanban
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
 
-                            {loading && boards.length === 0 ? (
+                            {searchingBoards ? (
+                                <View style={styles.searchingContainer}>
+                                    <ActivityIndicator color="#0052CC" />
+                                    <Text style={styles.searchingText}>Searching boards...</Text>
+                                </View>
+                            ) : loading && boards.length === 0 ? (
                                 <ActivityIndicator color="#0052CC" style={styles.dropdownLoader} />
                             ) : boards.length > 0 ? (
                                 <FlatList
@@ -875,39 +870,69 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                     nestedScrollEnabled={true}
                                     onEndReached={loadMoreBoards}
                                     onEndReachedThreshold={0.5}
-                                    renderItem={({ item }) => (
-                                        <TouchableOpacity
-                                            style={[
-                                                styles.boardDropdownItem,
-                                                selectedBoard?.id === item.id && styles.boardDropdownItemSelected,
-                                            ]}
-                                            onPress={() => handleBoardSelect(item)}
-                                        >
-                                            <View style={styles.boardDropdownItemContent}>
-                                                <Text style={[
-                                                    styles.boardDropdownItemName,
-                                                    selectedBoard?.id === item.id && styles.boardDropdownItemNameSelected,
-                                                ]} numberOfLines={1}>
-                                                    {savedDefaultBoardId === item.id && '⭐ '}{item.name}
-                                                </Text>
-                                                <View style={styles.boardDropdownItemMeta}>
-                                                    {item.type && (
-                                                        <Text style={styles.boardDropdownItemType}>
-                                                            {item.type.toLowerCase() === 'kanban' ? '📋 Kanban' : '🏃 Scrum'}
+                                    renderItem={({ item }) => {
+                                        const matchesFilter = boardTypeFilter === 'all' ||
+                                            (boardTypeFilter === 'scrum' && item.type?.toLowerCase() !== 'kanban') ||
+                                            (boardTypeFilter === 'kanban' && item.type?.toLowerCase() === 'kanban');
+
+                                        if (!matchesFilter) return null;
+
+                                        return (
+                                            <TouchableOpacity
+                                                style={[
+                                                    styles.boardDropdownItem,
+                                                    selectedBoard?.id === item.id && styles.boardDropdownItemSelected,
+                                                ]}
+                                                onPress={() => handleBoardSelect(item)}
+                                                activeOpacity={0.7}
+                                            >
+                                                <View style={styles.boardDropdownItemLeft}>
+                                                    <View style={[
+                                                        styles.boardTypeIcon,
+                                                        item.type?.toLowerCase() === 'kanban' ? styles.boardTypeIconKanban : styles.boardTypeIconScrum
+                                                    ]}>
+                                                        <Text style={styles.boardTypeIconText}>
+                                                            {item.type?.toLowerCase() === 'kanban' ? '📋' : '🏃'}
                                                         </Text>
-                                                    )}
-                                                    {item.location?.projectName && (
-                                                        <Text style={styles.boardDropdownItemProject} numberOfLines={1}>
-                                                            {item.location.projectName}
-                                                        </Text>
-                                                    )}
+                                                    </View>
+                                                    <View style={styles.boardDropdownItemContent}>
+                                                        <View style={styles.boardNameRow}>
+                                                            {savedDefaultBoardId === item.id && (
+                                                                <View style={styles.defaultBoardBadge}>
+                                                                    <Text style={styles.defaultBoardBadgeText}>⭐</Text>
+                                                                </View>
+                                                            )}
+                                                            <Text style={[
+                                                                styles.boardDropdownItemName,
+                                                                selectedBoard?.id === item.id && styles.boardDropdownItemNameSelected,
+                                                            ]} numberOfLines={2}>
+                                                                {item.name}
+                                                            </Text>
+                                                        </View>
+                                                        <View style={styles.boardDropdownItemMeta}>
+                                                            {item.type && (
+                                                                <View style={styles.boardTypeBadge}>
+                                                                    <Text style={styles.boardDropdownItemType}>
+                                                                        {item.type}
+                                                                    </Text>
+                                                                </View>
+                                                            )}
+                                                            {item.location?.projectName && (
+                                                                <Text style={styles.boardDropdownItemProject} numberOfLines={1}>
+                                                                    📁 {item.location.projectName}
+                                                                </Text>
+                                                            )}
+                                                        </View>
+                                                    </View>
                                                 </View>
-                                            </View>
-                                            {selectedBoard?.id === item.id && (
-                                                <Text style={styles.boardDropdownCheckmark}>✓</Text>
-                                            )}
-                                        </TouchableOpacity>
-                                    )}
+                                                {selectedBoard?.id === item.id && (
+                                                    <View style={styles.selectedCheckContainer}>
+                                                        <Text style={styles.boardDropdownCheckmark}>✓</Text>
+                                                    </View>
+                                                )}
+                                            </TouchableOpacity>
+                                        );
+                                    }}
                                     ListFooterComponent={() => {
                                         if (loadingMoreBoards) {
                                             return (
@@ -932,7 +957,18 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                 />
                             ) : (
                                 <View style={styles.emptyDropdownState}>
-                                    <Text style={styles.emptyDropdownText}>No boards match "{searchQuery}"</Text>
+                                    <Text style={styles.emptyDropdownIcon}>🔍</Text>
+                                    <Text style={styles.emptyDropdownText}>
+                                        {searchQuery ? `No boards match "${searchQuery}"` : 'No boards found'}
+                                    </Text>
+                                    {searchQuery && (
+                                        <TouchableOpacity
+                                            style={styles.clearSearchButton}
+                                            onPress={() => handleBoardSearch('')}
+                                        >
+                                            <Text style={styles.clearSearchButtonText}>Clear Search</Text>
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
                             )}
                         </View>
@@ -1072,69 +1108,23 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                             )}
                         </View>
 
-                        {activeTab === 'board' && (
-                            <View style={styles.filterContainer}>
-                                <Text style={styles.filterLabel}>👤 Filter by Assignee:</Text>
-                                <FlatList
-                                    horizontal
-                                    data={assignees}
-                                    keyExtractor={(item) => item.key}
-                                    renderItem={({ item }) => (
-                                        <TouchableOpacity
-                                            style={[
-                                                styles.filterChip,
-                                                selectedAssignee === item.key && styles.filterChipSelected,
-                                            ]}
-                                            onPress={() => handleAssigneeChange(item.key)}
-                                        >
-                                            <Text
-                                                style={[
-                                                    styles.filterChipText,
-                                                    selectedAssignee === item.key && styles.filterChipTextSelected,
-                                                ]}
-                                            >
-                                                {item.name}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    )}
-                                    showsHorizontalScrollIndicator={false}
-                                    contentContainerStyle={styles.filterList}
-                                />
-                            </View>
+                        {activeTab === 'board' && selectedBoard && (
+                            <AssigneeFilter
+                                assignees={assignees}
+                                selectedAssignee={selectedAssignee}
+                                onSelectAssignee={handleAssigneeChange}
+                            />
                         )}
                     </>
                 )}
 
                 {activeTab === 'backlog' && selectedBoard && (
                     <>
-                        <View style={styles.filterContainer}>
-                            <Text style={styles.filterLabel}>👤 Filter by Assignee:</Text>
-                            <FlatList
-                                horizontal
-                                data={assignees}
-                                keyExtractor={(item) => item.key}
-                                renderItem={({ item }) => (
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.filterChip,
-                                            selectedAssignee === item.key && styles.filterChipSelected,
-                                        ]}
-                                        onPress={() => handleAssigneeChange(item.key)}
-                                    >
-                                        <Text
-                                            style={[
-                                                styles.filterChipText,
-                                                selectedAssignee === item.key && styles.filterChipTextSelected,
-                                            ]}
-                                        >
-                                            {item.name}
-                                        </Text>
-                                    </TouchableOpacity>
-                                )}
-                                showsHorizontalScrollIndicator={false}
-                                contentContainerStyle={styles.filterList}
-                            />
-                        </View>
+                        <AssigneeFilter
+                            assignees={assignees}
+                            selectedAssignee={selectedAssignee}
+                            onSelectAssignee={handleAssigneeChange}
+                        />
                         {groupedBySprintIssues.length > 1 && (
                             <View style={styles.sprintControlsContainer}>
                                 <TouchableOpacity
@@ -1485,6 +1475,18 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                                         </View>
                                                     </View>
                                                     <View style={styles.sprintHeaderRight}>
+                                                        {!isBacklog && group.sprintId && (
+                                                            <TouchableOpacity
+                                                                style={styles.sprintOptionsButton}
+                                                                onPress={(e) => {
+                                                                    e.stopPropagation();
+                                                                    sprintManager.handleSprintOptions(group.sprintId!, group.sprint, group.startDate, group.endDate);
+                                                                }}
+                                                                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                                            >
+                                                                <Text style={styles.sprintOptionsIcon}>⋮</Text>
+                                                            </TouchableOpacity>
+                                                        )}
                                                         {stats && (
                                                             <View style={styles.sprintStats}>
                                                                 {stats.done > 0 && (
@@ -1547,250 +1549,41 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 )}
             </View>
 
-            {/* Create Sprint Modal */}
-            <Modal
-                visible={showCreateSprint}
-                animationType="slide"
-                transparent={true}
-                onRequestClose={() => setShowCreateSprint(false)}
-            >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Create New Sprint</Text>
-                            <TouchableOpacity onPress={() => setShowCreateSprint(false)}>
-                                <Text style={styles.modalCloseButton}>✕</Text>
-                            </TouchableOpacity>
-                        </View>
+            {/* Sprint Modals */}
+            <CreateSprintModal
+                visible={sprintManager.showCreateModal}
+                onClose={() => sprintManager.setShowCreateModal(false)}
+                onCreate={sprintManager.handleCreateSprint}
+                creating={sprintManager.creating}
+            />
 
-                        <ScrollView style={styles.modalBody}>
-                            <View style={styles.modalField}>
-                                <Text style={styles.modalLabel}>Sprint Name *</Text>
-                                <TextInput
-                                    style={styles.modalInput}
-                                    value={newSprintName}
-                                    onChangeText={setNewSprintName}
-                                    placeholder="Enter sprint name"
-                                    placeholderTextColor="#999"
-                                />
-                            </View>
+            <SprintOptionsModal
+                visible={sprintManager.showOptionsModal}
+                sprintName={sprintManager.selectedSprint?.name || ''}
+                onClose={() => sprintManager.setShowOptionsModal(false)}
+                onUpdate={sprintManager.handleOpenUpdate}
+                onDelete={sprintManager.handleDeleteSprint}
+                deleting={sprintManager.deleting}
+            />
 
-                            <View style={styles.modalField}>
-                                <Text style={styles.modalLabel}>Goal (Overview)</Text>
-                                <TextInput
-                                    style={[styles.modalInput, styles.modalTextArea]}
-                                    value={newSprintGoal}
-                                    onChangeText={setNewSprintGoal}
-                                    placeholder="Enter sprint goal"
-                                    placeholderTextColor="#999"
-                                    multiline
-                                    numberOfLines={3}
-                                />
-                            </View>
-
-                            <View style={styles.modalField}>
-                                <Text style={styles.modalLabel}>Start Date *</Text>
-                                <TouchableOpacity
-                                    style={styles.datePickerButton}
-                                    onPress={() => {
-                                        // Initialize with current value or today
-                                        if (!newSprintStartDate) {
-                                            setNewSprintStartDate(new Date());
-                                        }
-                                        setShowStartDatePicker(true);
-                                    }}
-                                >
-                                    <Text style={styles.datePickerText}>
-                                        {newSprintStartDate
-                                            ? newSprintStartDate.toLocaleDateString('en-US', {
-                                                month: 'short',
-                                                day: 'numeric',
-                                                year: 'numeric'
-                                            })
-                                            : 'Select start date'}
-                                    </Text>
-                                </TouchableOpacity>
-                                {showStartDatePicker && Platform.OS === 'ios' && (
-                                    <View style={styles.datePickerContainer}>
-                                        <View style={styles.datePickerHeader}>
-                                            <Text style={styles.datePickerHeaderText}>Select Start Date</Text>
-                                        </View>
-                                        <DateTimePicker
-                                            value={newSprintStartDate || new Date()}
-                                            mode="date"
-                                            display="spinner"
-                                            onChange={(event, selectedDate) => {
-                                                // Always update the date when changed
-                                                if (selectedDate) {
-                                                    setNewSprintStartDate(selectedDate);
-                                                }
-                                            }}
-                                            themeVariant="light"
-                                        />
-                                        <View style={styles.datePickerActions}>
-                                            <TouchableOpacity
-                                                style={styles.datePickerCancelButton}
-                                                onPress={() => {
-                                                    setShowStartDatePicker(false);
-                                                    // Reset to null if it was just initialized
-                                                    if (newSprintStartDate && newSprintStartDate.toDateString() === new Date().toDateString()) {
-                                                        // Don't reset if user already had a date
-                                                    }
-                                                }}
-                                            >
-                                                <Text style={styles.datePickerCancelText}>Cancel</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity
-                                                style={styles.datePickerConfirmButton}
-                                                onPress={() => {
-                                                    // Ensure date is set even if user didn't change from default
-                                                    if (!newSprintStartDate) {
-                                                        setNewSprintStartDate(new Date());
-                                                    }
-                                                    setShowStartDatePicker(false);
-                                                }}
-                                            >
-                                                <Text style={styles.datePickerConfirmText}>Confirm</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    </View>
-                                )}
-                            </View>
-
-                            <View style={styles.modalField}>
-                                <Text style={styles.modalLabel}>End Date *</Text>
-                                <TouchableOpacity
-                                    style={styles.datePickerButton}
-                                    onPress={() => {
-                                        // Initialize with current value or date 2 weeks from now
-                                        if (!newSprintEndDate) {
-                                            const twoWeeksFromNow = new Date();
-                                            twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
-                                            setNewSprintEndDate(twoWeeksFromNow);
-                                        }
-                                        setShowEndDatePicker(true);
-                                    }}
-                                >
-                                    <Text style={styles.datePickerText}>
-                                        {newSprintEndDate
-                                            ? newSprintEndDate.toLocaleDateString('en-US', {
-                                                month: 'short',
-                                                day: 'numeric',
-                                                year: 'numeric'
-                                            })
-                                            : 'Select end date'}
-                                    </Text>
-                                </TouchableOpacity>
-                                {showEndDatePicker && Platform.OS === 'ios' && (
-                                    <View style={styles.datePickerContainer}>
-                                        <View style={styles.datePickerHeader}>
-                                            <Text style={styles.datePickerHeaderText}>Select End Date</Text>
-                                        </View>
-                                        <DateTimePicker
-                                            value={newSprintEndDate || (() => {
-                                                const twoWeeks = new Date();
-                                                twoWeeks.setDate(twoWeeks.getDate() + 14);
-                                                return twoWeeks;
-                                            })()}
-                                            mode="date"
-                                            display="spinner"
-                                            onChange={(event, selectedDate) => {
-                                                // Always update the date when changed
-                                                if (selectedDate) {
-                                                    setNewSprintEndDate(selectedDate);
-                                                }
-                                            }}
-                                            themeVariant="light"
-                                        />
-                                        <View style={styles.datePickerActions}>
-                                            <TouchableOpacity
-                                                style={styles.datePickerCancelButton}
-                                                onPress={() => {
-                                                    setShowEndDatePicker(false);
-                                                }}
-                                            >
-                                                <Text style={styles.datePickerCancelText}>Cancel</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity
-                                                style={styles.datePickerConfirmButton}
-                                                onPress={() => {
-                                                    // Ensure date is set even if user didn't change from default
-                                                    if (!newSprintEndDate) {
-                                                        const twoWeeksFromNow = new Date();
-                                                        twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
-                                                        setNewSprintEndDate(twoWeeksFromNow);
-                                                    }
-                                                    setShowEndDatePicker(false);
-                                                }}
-                                            >
-                                                <Text style={styles.datePickerConfirmText}>Confirm</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    </View>
-                                )}
-                            </View>
-                        </ScrollView>
-
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity
-                                style={styles.modalCancelButton}
-                                onPress={() => setShowCreateSprint(false)}
-                            >
-                                <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.modalCreateButton, creatingSprint && styles.modalCreateButtonDisabled]}
-                                onPress={handleCreateSprint}
-                                disabled={creatingSprint}
-                            >
-                                {creatingSprint ? (
-                                    <ActivityIndicator size="small" color="#fff" />
-                                ) : (
-                                    <Text style={styles.modalCreateButtonText}>Create Sprint</Text>
-                                )}
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* Date Pickers for Android */}
-            {Platform.OS === 'android' && showStartDatePicker && (
-                <DateTimePicker
-                    value={newSprintStartDate || new Date()}
-                    mode="date"
-                    display="default"
-                    onChange={(event, selectedDate) => {
-                        setShowStartDatePicker(false);
-                        if (event.type === 'set') {
-                            // Set the date even if it's the default value
-                            setNewSprintStartDate(selectedDate || new Date());
-                        }
-                    }}
-                />
-            )}
-
-            {Platform.OS === 'android' && showEndDatePicker && (
-                <DateTimePicker
-                    value={newSprintEndDate || (() => {
-                        const twoWeeks = new Date();
-                        twoWeeks.setDate(twoWeeks.getDate() + 14);
-                        return twoWeeks;
-                    })()}
-                    mode="date"
-                    display="default"
-                    onChange={(event, selectedDate) => {
-                        setShowEndDatePicker(false);
-                        if (event.type === 'set') {
-                            // Set the date even if it's the default value
-                            const defaultEndDate = new Date();
-                            defaultEndDate.setDate(defaultEndDate.getDate() + 14);
-                            setNewSprintEndDate(selectedDate || defaultEndDate);
-                        }
-                    }}
-                />
-            )}
-        </View>
+            <UpdateSprintModal
+                visible={sprintManager.showUpdateModal}
+                initialName={sprintManager.selectedSprint?.name || ''}
+                initialStartDate={
+                    sprintManager.selectedSprint?.startDate
+                        ? new Date(sprintManager.selectedSprint.startDate)
+                        : null
+                }
+                initialEndDate={
+                    sprintManager.selectedSprint?.endDate
+                        ? new Date(sprintManager.selectedSprint.endDate)
+                        : null
+                }
+                onClose={() => sprintManager.setShowUpdateModal(false)}
+                onUpdate={sprintManager.handleUpdateSprint}
+                updating={sprintManager.updating}
+            />
+        </View >
     );
 }
 
@@ -1930,75 +1723,197 @@ const styles = StyleSheet.create({
         color: '#5E6C84',
     },
     boardDropdownPanel: {
-        backgroundColor: '#F9F9F9',
-        borderRadius: 8,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: '#DFE1E6',
         overflow: 'hidden',
+        marginHorizontal: 16,
+        marginTop: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 8,
+        elevation: 5,
+    },
+    boardPanelHeader: {
+        backgroundColor: '#F9FAFB',
+        paddingBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E8EBED',
+    },
+    filterChipsContainer: {
+        flexDirection: 'row',
+        paddingHorizontal: 20,
+        paddingTop: 8,
+        gap: 8,
+    },
+    filterChipSmall: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 16,
+        backgroundColor: '#F4F5F7',
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+    },
+    filterChipSmallActive: {
+        backgroundColor: '#0052CC',
+        borderColor: '#0052CC',
+    },
+    filterChipSmallText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#5E6C84',
+    },
+    filterChipSmallTextActive: {
+        color: '#FFFFFF',
     },
     boardDropdownList: {
-        maxHeight: 300,
+        maxHeight: 350,
     },
     boardDropdownItem: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: 12,
+        padding: 14,
         borderBottomWidth: 1,
-        borderBottomColor: '#E8EBED',
+        borderBottomColor: '#F4F5F7',
         backgroundColor: '#fff',
     },
     boardDropdownItemSelected: {
         backgroundColor: '#E6F2FF',
+        borderLeftWidth: 4,
+        borderLeftColor: '#0052CC',
+    },
+    boardDropdownItemLeft: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    boardTypeIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    boardTypeIconScrum: {
+        backgroundColor: '#E6F2FF',
+    },
+    boardTypeIconKanban: {
+        backgroundColor: '#FFF4E6',
+    },
+    boardTypeIconText: {
+        fontSize: 18,
     },
     boardDropdownItemContent: {
         flex: 1,
-        marginRight: 8,
+    },
+    boardNameRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: 6,
+    },
+    defaultBoardBadge: {
+        backgroundColor: '#FFF4E6',
+        borderRadius: 4,
+        paddingHorizontal: 4,
+        paddingVertical: 2,
+    },
+    defaultBoardBadgeText: {
+        fontSize: 12,
     },
     boardDropdownItemName: {
         fontSize: 15,
-        fontWeight: '500',
+        fontWeight: '600',
         color: '#172B4D',
-        marginBottom: 4,
+        flex: 1,
     },
     boardDropdownItemNameSelected: {
         color: '#0052CC',
-        fontWeight: '600',
+        fontWeight: '700',
     },
     boardDropdownItemMeta: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+        flexWrap: 'wrap',
+    },
+    boardTypeBadge: {
+        backgroundColor: '#F4F5F7',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 12,
     },
     boardDropdownItemType: {
-        fontSize: 12,
+        fontSize: 11,
         color: '#5E6C84',
-        backgroundColor: '#F4F5F7',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
+        fontWeight: '600',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
     boardDropdownItemProject: {
         fontSize: 12,
-        color: '#5E6C84',
+        color: '#7A869A',
         flex: 1,
     },
+    selectedCheckContainer: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: '#0052CC',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginLeft: 8,
+    },
     boardDropdownCheckmark: {
-        fontSize: 18,
-        color: '#0052CC',
+        fontSize: 14,
+        color: '#FFFFFF',
         fontWeight: 'bold',
     },
     dropdownLoader: {
         padding: 30,
     },
-    emptyDropdownState: {
-        padding: 30,
+    searchingContainer: {
+        flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center',
+        padding: 30,
+        gap: 12,
     },
-    emptyDropdownText: {
+    searchingText: {
         fontSize: 14,
         color: '#5E6C84',
         fontStyle: 'italic',
+    },
+    emptyDropdownState: {
+        padding: 40,
+        alignItems: 'center',
+    },
+    emptyDropdownIcon: {
+        fontSize: 48,
+        marginBottom: 12,
+        opacity: 0.3,
+    },
+    emptyDropdownText: {
+        fontSize: 15,
+        color: '#5E6C84',
+        textAlign: 'center',
+        marginBottom: 16,
+    },
+    clearSearchButton: {
+        backgroundColor: '#0052CC',
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 8,
+        marginTop: 8,
+    },
+    clearSearchButtonText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '600',
     },
     loadingMoreContainer: {
         flexDirection: 'row',
@@ -3092,5 +3007,40 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: '#DE350B',
         fontWeight: '600',
+    },
+    sprintOptionsButton: {
+        padding: 8,
+        marginRight: 4,
+    },
+    sprintOptionsIcon: {
+        fontSize: 20,
+        color: '#5E6C84',
+        fontWeight: 'bold',
+    },
+    sprintOptionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        backgroundColor: '#fff',
+        borderRadius: 8,
+        marginBottom: 8,
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+    },
+    sprintOptionButtonDelete: {
+        borderColor: '#FFEBE6',
+        backgroundColor: '#FFEBE6',
+    },
+    sprintOptionIcon: {
+        fontSize: 20,
+        marginRight: 12,
+    },
+    sprintOptionText: {
+        fontSize: 16,
+        color: '#172B4D',
+        fontWeight: '500',
+    },
+    sprintOptionTextDelete: {
+        color: '#DE350B',
     },
 });

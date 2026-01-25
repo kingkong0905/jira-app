@@ -41,6 +41,7 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
     const [hasMoreBoards, setHasMoreBoards] = useState(true);
     const [loadingMoreBoards, setLoadingMoreBoards] = useState(false);
     const [savingBoard, setSavingBoard] = useState(false);
+    const [boardTypeFilter, setBoardTypeFilter] = useState<'all' | 'scrum' | 'kanban'>('all');
     const [keyboardHeight, setKeyboardHeight] = useState(0);
     const scrollViewRef = useRef<ScrollView>(null);
     const apiTokenRef = useRef<View>(null);
@@ -499,6 +500,33 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
                             )}
                         </View>
 
+                        <View style={styles.filterChipsRow}>
+                            <TouchableOpacity
+                                style={[styles.filterChipModal, boardTypeFilter === 'all' && styles.filterChipModalActive]}
+                                onPress={() => setBoardTypeFilter('all')}
+                            >
+                                <Text style={[styles.filterChipModalText, boardTypeFilter === 'all' && styles.filterChipModalTextActive]}>
+                                    📊 All Boards
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.filterChipModal, boardTypeFilter === 'scrum' && styles.filterChipModalActive]}
+                                onPress={() => setBoardTypeFilter('scrum')}
+                            >
+                                <Text style={[styles.filterChipModalText, boardTypeFilter === 'scrum' && styles.filterChipModalTextActive]}>
+                                    🏃 Scrum
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.filterChipModal, boardTypeFilter === 'kanban' && styles.filterChipModalActive]}
+                                onPress={() => setBoardTypeFilter('kanban')}
+                            >
+                                <Text style={[styles.filterChipModalText, boardTypeFilter === 'kanban' && styles.filterChipModalTextActive]}>
+                                    📋 Kanban
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+
                         {loadingBoards ? (
                             <View style={styles.loadingContainer}>
                                 <ActivityIndicator size="large" color="#0052CC" />
@@ -510,35 +538,70 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
                                 style={styles.boardListModal}
                                 onEndReached={loadMoreBoards}
                                 onEndReachedThreshold={0.5}
-                                renderItem={({ item }) => (
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.boardModalItem,
-                                            tempSelectedBoardId === item.id && styles.boardModalItemSelected,
-                                        ]}
-                                        onPress={() => {
-                                            handleBoardItemSelect(item.id);
-                                            setIsBoardDropdownExpanded(false);
-                                        }}
-                                    >
-                                        <View style={styles.boardItemContent}>
-                                            <Text style={[
-                                                styles.boardName,
-                                                tempSelectedBoardId === item.id && styles.boardNameSelected,
-                                            ]}>
-                                                {defaultBoardId === item.id && '⭐ '}{item.name}
-                                            </Text>
-                                            {item.location?.projectName && (
-                                                <Text style={styles.boardProject}>
-                                                    {item.location.projectName}
-                                                </Text>
+                                renderItem={({ item }) => {
+                                    const matchesFilter = boardTypeFilter === 'all' ||
+                                        (boardTypeFilter === 'scrum' && item.type?.toLowerCase() !== 'kanban') ||
+                                        (boardTypeFilter === 'kanban' && item.type?.toLowerCase() === 'kanban');
+
+                                    if (!matchesFilter) return null;
+
+                                    return (
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.boardModalItem,
+                                                tempSelectedBoardId === item.id && styles.boardModalItemSelected,
+                                            ]}
+                                            onPress={() => {
+                                                handleBoardItemSelect(item.id);
+                                                setIsBoardDropdownExpanded(false);
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <View style={styles.boardItemRow}>
+                                                <View style={[
+                                                    styles.boardIconContainer,
+                                                    item.type?.toLowerCase() === 'kanban' ? styles.boardIconKanban : styles.boardIconScrum
+                                                ]}>
+                                                    <Text style={styles.boardIcon}>
+                                                        {item.type?.toLowerCase() === 'kanban' ? '📋' : '🏃'}
+                                                    </Text>
+                                                </View>
+                                                <View style={styles.boardItemContent}>
+                                                    <View style={styles.boardNameContainer}>
+                                                        {defaultBoardId === item.id && (
+                                                            <View style={styles.starBadge}>
+                                                                <Text style={styles.starIcon}>⭐</Text>
+                                                            </View>
+                                                        )}
+                                                        <Text style={[
+                                                            styles.boardName,
+                                                            tempSelectedBoardId === item.id && styles.boardNameSelected,
+                                                        ]} numberOfLines={2}>
+                                                            {item.name}
+                                                        </Text>
+                                                    </View>
+                                                    <View style={styles.boardMetaRow}>
+                                                        {item.type && (
+                                                            <View style={styles.typeBadge}>
+                                                                <Text style={styles.typeText}>{item.type}</Text>
+                                                            </View>
+                                                        )}
+                                                        {item.location?.projectName && (
+                                                            <Text style={styles.boardProject} numberOfLines={1}>
+                                                                📁 {item.location.projectName}
+                                                            </Text>
+                                                        )}
+                                                    </View>
+                                                </View>
+                                            </View>
+                                            {tempSelectedBoardId === item.id && (
+                                                <View style={styles.checkmarkContainer}>
+                                                    <Text style={styles.checkmark}>✓</Text>
+                                                </View>
                                             )}
-                                        </View>
-                                        {tempSelectedBoardId === item.id && (
-                                            <Text style={styles.checkmark}>✓</Text>
-                                        )}
-                                    </TouchableOpacity>
-                                )}
+                                        </TouchableOpacity>
+                                    );
+                                }}
                                 ListFooterComponent={() => {
                                     if (loadingMoreBoards) {
                                         return (
@@ -783,7 +846,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-        maxHeight: '80%',
+        maxHeight: '85%',
         paddingBottom: 20,
     },
     modalHeader: {
@@ -791,29 +854,90 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: 20,
+        paddingBottom: 16,
         borderBottomWidth: 1,
-        borderBottomColor: '#E0E0E0',
+        borderBottomColor: '#F4F5F7',
+        backgroundColor: '#F9FAFB',
     },
     modalTitle: {
-        fontSize: 18,
-        fontWeight: '600',
+        fontSize: 20,
+        fontWeight: '700',
         color: '#172B4D',
     },
     modalCloseButton: {
         padding: 5,
+        width: 36,
+        height: 36,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 18,
+        backgroundColor: '#F4F5F7',
     },
     modalCloseText: {
-        fontSize: 24,
+        fontSize: 20,
         color: '#5E6C84',
-        fontWeight: '300',
+        fontWeight: '600',
+    },
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F9FAFB',
+        borderRadius: 12,
+        marginHorizontal: 16,
+        marginTop: 16,
+        paddingHorizontal: 14,
+        borderWidth: 1.5,
+        borderColor: '#E1E4E8',
+    },
+    searchIcon: {
+        fontSize: 18,
+        marginRight: 8,
+    },
+    clearButton: {
+        padding: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    clearButtonText: {
+        fontSize: 16,
+        color: '#5E6C84',
+        fontWeight: '600',
+    },
+    filterChipsRow: {
+        flexDirection: 'row',
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 8,
+        gap: 8,
+    },
+    filterChipModal: {
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 18,
+        backgroundColor: '#F4F5F7',
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+    },
+    filterChipModalActive: {
+        backgroundColor: '#0052CC',
+        borderColor: '#0052CC',
+    },
+    filterChipModalText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#5E6C84',
+    },
+    filterChipModalTextActive: {
+        color: '#FFFFFF',
     },
     modalSearchInput: {
         flex: 1,
         fontSize: 16,
         color: '#172B4D',
+        paddingVertical: 12,
     },
     loadingContainer: {
-        padding: 40,
+        padding: 60,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -830,9 +954,99 @@ const styles = StyleSheet.create({
     },
     boardModalItemSelected: {
         backgroundColor: '#E6F2FF',
+        borderLeftWidth: 4,
+        borderLeftColor: '#0052CC',
+    },
+    boardItemRow: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    boardIconContainer: {
+        width: 44,
+        height: 44,
+        borderRadius: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    boardIconScrum: {
+        backgroundColor: '#E6F2FF',
+    },
+    boardIconKanban: {
+        backgroundColor: '#FFF4E6',
+    },
+    boardIcon: {
+        fontSize: 20,
+    },
+    boardItemContent: {
+        flex: 1,
+    },
+    boardNameContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: 6,
+    },
+    starBadge: {
+        backgroundColor: '#FFF4E6',
+        borderRadius: 4,
+        paddingHorizontal: 4,
+        paddingVertical: 2,
+    },
+    starIcon: {
+        fontSize: 12,
+    },
+    boardName: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#172B4D',
+        flex: 1,
+    },
+    boardNameSelected: {
+        color: '#0052CC',
+        fontWeight: '700',
+    },
+    boardMetaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        flexWrap: 'wrap',
+    },
+    typeBadge: {
+        backgroundColor: '#F4F5F7',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 12,
+    },
+    typeText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#5E6C84',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    boardProject: {
+        fontSize: 13,
+        color: '#7A869A',
+        flex: 1,
+    },
+    checkmarkContainer: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#0052CC',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginLeft: 8,
+    },
+    checkmark: {
+        fontSize: 16,
+        color: '#FFFFFF',
+        fontWeight: 'bold',
     },
     emptyContainer: {
-        padding: 40,
+        padding: 60,
         alignItems: 'center',
     },
     label: {
