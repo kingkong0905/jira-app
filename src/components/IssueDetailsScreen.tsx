@@ -53,7 +53,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     const [showStatusPicker, setShowStatusPicker] = useState(false);
     const [availableTransitions, setAvailableTransitions] = useState<any[]>([]);
     const [loadingTransitions, setLoadingTransitions] = useState(false);
-    const [transitioningStatus, setTransitioningStatus] = useState(false);
+    const [transitioningStatusId, setTransitioningStatusId] = useState<string | null>(null);
     const [showTypePicker, setShowTypePicker] = useState(false);
     const [availableTypes, setAvailableTypes] = useState<any[]>([]);
     const [loadingTypes, setLoadingTypes] = useState(false);
@@ -98,6 +98,10 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     // Edit comment mention state
     const [showEditMentionSuggestions, setShowEditMentionSuggestions] = useState(false);
     const [editMentionSuggestions, setEditMentionSuggestions] = useState<JiraUser[]>([]);
+
+    // User info popup state
+    const [showUserInfoPopup, setShowUserInfoPopup] = useState(false);
+    const [selectedUserInfo, setSelectedUserInfo] = useState<JiraUser | null>(null);
     const [editMentionQuery, setEditMentionQuery] = useState('');
     const [editMentionStartIndex, setEditMentionStartIndex] = useState(-1);
     const [loadingEditMentions, setLoadingEditMentions] = useState(false);
@@ -407,9 +411,9 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                 <View style={styles.commentBody}>
                     {comment.body.content.map((node: any, nodeIndex: number) => {
                         if (node.type === 'paragraph' && node.content) {
-                            // Render paragraph content with text and mentions
+                            // Render paragraph content with text and mentions inline
                             return (
-                                <View key={nodeIndex} style={styles.paragraphContainer}>
+                                <Text key={nodeIndex} style={styles.paragraphText}>
                                     {node.content.map((item: any, itemIndex: number) => {
                                         if (item.type === 'text') {
                                             // Check if text has link mark
@@ -426,31 +430,58 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                                 );
                                             }
 
-                                            // Also check for plain URLs in text and linkify them
+                                            // Return plain text (linkifyText returns React elements)
                                             return (
-                                                <Text key={itemIndex} style={styles.paragraphText}>
+                                                <Text key={itemIndex}>
                                                     {linkifyText(item.text || '', { linkStyle: styles.linkText })}
                                                 </Text>
                                             );
                                         } else if (item.type === 'mention') {
-                                            // Render mention as a styled chip/badge
+                                            // Render mention as inline styled text with click handler
                                             const mentionText = item.attrs?.text?.replace('@', '') || 'user';
+                                            const accountId = item.attrs?.id || '';
                                             return (
-                                                <View key={itemIndex} style={styles.mentionChip}>
-                                                    <View style={styles.mentionAvatarSmall}>
-                                                        <Text style={styles.mentionAvatarSmallText}>
-                                                            {mentionText.charAt(0).toUpperCase()}
-                                                        </Text>
-                                                    </View>
-                                                    <Text style={styles.mentionChipText}>
-                                                        {mentionText}
-                                                    </Text>
-                                                </View>
+                                                <Text
+                                                    key={itemIndex}
+                                                    style={styles.mentionInlineChip}
+                                                    onPress={async () => {
+                                                        // Fetch user info from Jira API by accountId
+                                                        try {
+                                                            const userInfo = await jiraApi.getUserByAccountId(accountId);
+
+                                                            if (userInfo) {
+                                                                setSelectedUserInfo(userInfo);
+                                                            } else {
+                                                                // Fallback to basic info if API fails
+                                                                setSelectedUserInfo({
+                                                                    accountId,
+                                                                    displayName: mentionText,
+                                                                    emailAddress: '',
+                                                                    avatarUrls: { '48x48': '' }
+                                                                });
+                                                            }
+
+                                                            setShowUserInfoPopup(true);
+                                                        } catch (error) {
+                                                            console.error('Error fetching user info:', error);
+                                                            // Show popup with basic info even on error
+                                                            setSelectedUserInfo({
+                                                                accountId,
+                                                                displayName: mentionText,
+                                                                emailAddress: '',
+                                                                avatarUrls: { '48x48': '' }
+                                                            });
+                                                            setShowUserInfoPopup(true);
+                                                        }
+                                                    }}
+                                                >
+                                                    {mentionText}
+                                                </Text>
                                             );
                                         }
                                         return null;
                                     })}
-                                </View>
+                                </Text>
                             );
                         } else if (node.type === 'codeBlock' && node.content) {
                             const codeText = node.content.map((text: any) => text.text || '').join('');
@@ -651,7 +682,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
 
     const handleTransitionIssue = async (transitionId: string, transitionName: string) => {
         try {
-            setTransitioningStatus(true);
+            setTransitioningStatusId(transitionId);
             await jiraApi.transitionIssue(issueKey, transitionId);
             await loadIssueDetails(); // Reload to get updated status
             setShowStatusPicker(false);
@@ -660,7 +691,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
             console.error('Error transitioning issue:', error);
             Alert.alert('Error', error?.response?.data?.errorMessages?.[0] || 'Failed to change status');
         } finally {
-            setTransitioningStatus(false);
+            setTransitioningStatusId(null);
         }
     };
 
@@ -2697,7 +2728,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                             key={transition.id}
                                             style={styles.statusItem}
                                             onPress={() => handleTransitionIssue(transition.id, transition.name)}
-                                            disabled={transitioningStatus}
+                                            disabled={transitioningStatusId !== null}
                                         >
                                             <View style={styles.statusItemContent}>
                                                 <View style={[
@@ -2713,7 +2744,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                                     )}
                                                 </View>
                                             </View>
-                                            {transitioningStatus && (
+                                            {transitioningStatusId === transition.id && (
                                                 <ActivityIndicator size="small" color="#0052CC" />
                                             )}
                                         </TouchableOpacity>
@@ -2817,6 +2848,62 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                         )}
                     </View>
                 </View>
+            </Modal>
+
+            {/* User Info Popup Modal */}
+            <Modal
+                visible={showUserInfoPopup}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShowUserInfoPopup(false)}
+            >
+                <TouchableOpacity
+                    style={styles.userInfoModalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowUserInfoPopup(false)}
+                >
+                    <View style={styles.userInfoModalContent} onStartShouldSetResponder={() => true}>
+                        {selectedUserInfo && (
+                            <>
+                                <View style={styles.userInfoHeader}>
+                                    {selectedUserInfo.avatarUrls?.['48x48'] ? (
+                                        <Image
+                                            source={{ uri: selectedUserInfo.avatarUrls['48x48'] }}
+                                            style={styles.userInfoAvatarLarge}
+                                        />
+                                    ) : (
+                                        <View style={styles.userInfoAvatarLarge}>
+                                            <Text style={styles.userInfoAvatarText}>
+                                                {selectedUserInfo.displayName.charAt(0).toUpperCase()}
+                                            </Text>
+                                        </View>
+                                    )}
+                                    <TouchableOpacity
+                                        style={styles.userInfoCloseButton}
+                                        onPress={() => setShowUserInfoPopup(false)}
+                                    >
+                                        <Text style={styles.userInfoCloseText}>✕</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <View style={styles.userInfoBody}>
+                                    <Text style={styles.userInfoLabel}>Name</Text>
+                                    <Text style={styles.userInfoValue}>{selectedUserInfo.displayName}</Text>
+
+                                    {selectedUserInfo.emailAddress && (
+                                        <>
+                                            <Text style={styles.userInfoLabel}>Email</Text>
+                                            <Text style={styles.userInfoValue}>{selectedUserInfo.emailAddress}</Text>
+                                        </>
+                                    )}
+
+                                    <Text style={styles.userInfoLabel}>Account ID</Text>
+                                    <Text style={styles.userInfoValueSmall}>{selectedUserInfo.accountId}</Text>
+                                </View>
+                            </>
+                        )}
+                    </View>
+                </TouchableOpacity>
             </Modal>
         </View>
     );
@@ -3641,28 +3728,29 @@ const styles = StyleSheet.create({
         flexWrap: 'wrap',
         alignItems: 'center',
         marginBottom: 8,
-        gap: 4,
     },
     mentionChip: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: '#DEEBFF',
-        paddingVertical: 4,
+        paddingVertical: 3,
         paddingHorizontal: 8,
-        borderRadius: 12,
+        paddingRight: 10,
+        borderRadius: 14,
         gap: 6,
         marginHorizontal: 2,
+        marginVertical: 2,
     },
     mentionAvatarSmall: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
+        width: 22,
+        height: 22,
+        borderRadius: 11,
         backgroundColor: '#0052CC',
         justifyContent: 'center',
         alignItems: 'center',
     },
     mentionAvatarSmallText: {
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: '700',
         color: '#fff',
     },
@@ -3670,10 +3758,95 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#0052CC',
         fontWeight: '600',
+        lineHeight: 20,
+    },
+    mentionInlineChip: {
+        backgroundColor: '#DEEBFF',
+        borderRadius: 12,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        marginHorizontal: 2,
+        fontSize: 14,
+        color: '#0052CC',
+        fontWeight: '600',
     },
     mentionText: {
         color: '#0052CC',
         fontWeight: '600',
+    },
+    userInfoModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    userInfoModalContent: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        width: '100%',
+        maxWidth: 400,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    userInfoHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 20,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F4F5F7',
+    },
+    userInfoAvatarLarge: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: '#0052CC',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    userInfoAvatarText: {
+        fontSize: 28,
+        fontWeight: '700',
+        color: '#fff',
+    },
+    userInfoCloseButton: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#F4F5F7',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    userInfoCloseText: {
+        fontSize: 18,
+        color: '#5E6C84',
+        fontWeight: '600',
+    },
+    userInfoBody: {
+        padding: 20,
+    },
+    userInfoLabel: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#5E6C84',
+        textTransform: 'uppercase',
+        marginTop: 16,
+        marginBottom: 6,
+    },
+    userInfoValue: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#172B4D',
+    },
+    userInfoValueSmall: {
+        fontSize: 13,
+        color: '#5E6C84',
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
     linkText: {
         color: '#0052CC',
@@ -4209,5 +4382,79 @@ const styles = StyleSheet.create({
     mentionEmail: {
         fontSize: 12,
         color: '#5E6C84',
+    },
+    userInfoModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    userInfoModalContent: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        width: '100%',
+        maxWidth: 400,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    userInfoHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 20,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F4F5F7',
+    },
+    userInfoAvatarLarge: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: '#0052CC',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    userInfoAvatarText: {
+        fontSize: 28,
+        fontWeight: '700',
+        color: '#fff',
+    },
+    userInfoCloseButton: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#F4F5F7',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    userInfoCloseText: {
+        fontSize: 18,
+        color: '#5E6C84',
+        fontWeight: '600',
+    },
+    userInfoBody: {
+        padding: 20,
+    },
+    userInfoLabel: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#5E6C84',
+        textTransform: 'uppercase',
+        marginTop: 16,
+        marginBottom: 6,
+    },
+    userInfoValue: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#172B4D',
+    },
+    userInfoValueSmall: {
+        fontSize: 13,
+        color: '#5E6C84',
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
 });

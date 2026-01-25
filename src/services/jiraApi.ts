@@ -851,6 +851,17 @@ class JiraApiService {
         }
     }
 
+    async getUserByAccountId(accountId: string): Promise<any> {
+        try {
+            const api = this.getAxiosInstance();
+            const response = await api.get(`/rest/api/3/user?accountId=${accountId}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching user by accountId:', error);
+            return null;
+        }
+    }
+
     async updateIssueField(issueKey: string, fields: any): Promise<void> {
         try {
             const api = this.getAxiosInstance();
