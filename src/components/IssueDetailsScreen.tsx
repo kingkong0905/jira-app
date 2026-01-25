@@ -2431,11 +2431,32 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
         // Extract text from description ADF and convert to HTML with paragraphs
         const extractTextWithStructure = (node: any): string => {
             if (node.type === 'text') {
-                return node.text || '';
+                let text = node.text || '';
+
+                // Handle marks (like links, bold, italic, etc.)
+                if (node.marks && node.marks.length > 0) {
+                    node.marks.forEach((mark: any) => {
+                        if (mark.type === 'link' && mark.attrs?.href) {
+                            text = `<a href="${mark.attrs.href}">${text}</a>`;
+                        } else if (mark.type === 'strong') {
+                            text = `<strong>${text}</strong>`;
+                        } else if (mark.type === 'em') {
+                            text = `<em>${text}</em>`;
+                        } else if (mark.type === 'code') {
+                            text = `<code>${text}</code>`;
+                        }
+                    });
+                }
+
+                return text;
             }
             if (node.type === 'paragraph') {
                 const content = node.content ? node.content.map((child: any) => extractTextWithStructure(child)).join('') : '';
                 return `<p>${content || '&nbsp;'}</p>`;
+            }
+            if (node.type === 'codeBlock') {
+                const codeText = node.content ? node.content.map((child: any) => extractTextWithStructure(child)).join('') : '';
+                return `<pre><code>${codeText}</code></pre>`;
             }
             if (node.content) {
                 return node.content.map((child: any) => extractTextWithStructure(child)).join('');
