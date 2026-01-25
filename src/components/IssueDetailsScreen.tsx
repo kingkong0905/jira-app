@@ -63,6 +63,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     const [loadingPriorities, setLoadingPriorities] = useState(false);
     const [updatingPriorityId, setUpdatingPriorityId] = useState<string | null>(null);
     const [showDueDatePicker, setShowDueDatePicker] = useState(false);
+    const [showAndroidDatePicker, setShowAndroidDatePicker] = useState(false);
     const [selectedDueDate, setSelectedDueDate] = useState<Date | null>(null);
     const [updatingDueDate, setUpdatingDueDate] = useState(false);
     const [showStoryPointsPicker, setShowStoryPointsPicker] = useState(false);
@@ -2253,33 +2254,65 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                             </Text>
                         </View>
 
-                        <View style={styles.datePickerContainer}>
-                            <DateTimePicker
-                                value={selectedDueDate || new Date()}
-                                mode="date"
-                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                onChange={(event, date) => {
-                                    if (event.type === 'set' && date) {
-                                        setSelectedDueDate(date);
-                                    }
-                                }}
-                                style={styles.datePicker}
-                            />
-                            <View style={styles.dateActions}>
-                                <TouchableOpacity
-                                    style={styles.dateButton}
-                                    onPress={() => setSelectedDueDate(new Date())}
-                                >
-                                    <Text style={styles.dateButtonText}>Today</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={styles.dateButton}
-                                    onPress={() => setSelectedDueDate(null)}
-                                >
-                                    <Text style={styles.dateButtonText}>Clear</Text>
-                                </TouchableOpacity>
+                        {Platform.OS === 'ios' ? (
+                            <View style={styles.datePickerContainer}>
+                                <DateTimePicker
+                                    value={selectedDueDate || new Date()}
+                                    mode="date"
+                                    display="spinner"
+                                    onChange={(event, date) => {
+                                        if (date) {
+                                            setSelectedDueDate(date);
+                                        }
+                                    }}
+                                    style={styles.datePicker}
+                                    textColor="#172B4D"
+                                />
+                                <View style={styles.dateActions}>
+                                    <TouchableOpacity
+                                        style={styles.dateButton}
+                                        onPress={() => setSelectedDueDate(new Date())}
+                                    >
+                                        <Text style={styles.dateButtonText}>Today</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.dateButton}
+                                        onPress={() => setSelectedDueDate(null)}
+                                    >
+                                        <Text style={styles.dateButtonText}>Clear</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-                        </View>
+                        ) : (
+                            <View style={styles.datePickerContainer}>
+                                <TouchableOpacity
+                                    style={styles.androidDateButton}
+                                    onPress={() => setShowAndroidDatePicker(true)}
+                                >
+                                    <Text style={styles.androidDateButtonText}>
+                                        📅 {selectedDueDate ? selectedDueDate.toLocaleDateString('en-US', {
+                                            month: 'short',
+                                            day: 'numeric',
+                                            year: 'numeric'
+                                        }) : 'Select Date'}
+                                    </Text>
+                                </TouchableOpacity>
+                                <View style={styles.dateActions}>
+                                    <TouchableOpacity
+                                        style={styles.dateButton}
+                                        onPress={() => setSelectedDueDate(new Date())}
+                                    >
+                                        <Text style={styles.dateButtonText}>Today</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.dateButton}
+                                        onPress={() => setSelectedDueDate(null)}
+                                    >
+                                        <Text style={styles.dateButtonText}>Clear</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        )}
 
                         <TouchableOpacity
                             style={styles.updateButton}
@@ -2905,6 +2938,21 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                     </View>
                 </TouchableOpacity>
             </Modal>
+
+            {/* Android Date Picker */}
+            {Platform.OS === 'android' && showAndroidDatePicker && (
+                <DateTimePicker
+                    value={selectedDueDate || new Date()}
+                    mode="date"
+                    display="default"
+                    onChange={(event, date) => {
+                        setShowAndroidDatePicker(false);
+                        if (event.type === 'set' && date) {
+                            setSelectedDueDate(date);
+                        }
+                    }}
+                />
+            )}
         </View>
     );
 }
@@ -3537,6 +3585,7 @@ const styles = StyleSheet.create({
     },
     datePicker: {
         width: '100%',
+        height: 200,
         marginBottom: 12,
     },
     dateInput: {
@@ -3565,6 +3614,21 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#172B4D',
         fontWeight: '600',
+    },
+    androidDateButton: {
+        backgroundColor: '#F4F5F7',
+        borderRadius: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+        marginBottom: 16,
+        alignItems: 'center',
+    },
+    androidDateButtonText: {
+        fontSize: 16,
+        color: '#172B4D',
+        fontWeight: '500',
     },
     storyPointsInput: {
         backgroundColor: '#F4F5F7',

@@ -7,7 +7,7 @@ interface IssueCardProps {
     onPress?: () => void;
 }
 
-export default function IssueCard({ issue, onPress }: IssueCardProps) {
+const IssueCard = React.memo<IssueCardProps>(({ issue, onPress }) => {
     const getStatusColor = (statusCategory: string): string => {
         const colors: { [key: string]: string } = {
             done: '#36B37E',
@@ -88,7 +88,9 @@ export default function IssueCard({ issue, onPress }: IssueCardProps) {
             </View>
         </TouchableOpacity>
     );
-}
+});
+
+export default IssueCard;
 
 const styles = StyleSheet.create({
     card: {

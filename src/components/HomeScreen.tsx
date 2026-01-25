@@ -65,6 +65,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
     const [creatingSprint, setCreatingSprint] = useState(false);
     const [showStartDatePicker, setShowStartDatePicker] = useState(false);
     const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+    const [collapsedSprints, setCollapsedSprints] = useState<Set<string>>(new Set());
     const boardListRef = useRef<FlatList>(null);
 
     useEffect(() => {
@@ -225,6 +226,18 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 // Get active sprint
                 const activeSprintData = sprintsData.find(s => s.state === 'active') || null;
                 setActiveSprint(activeSprintData);
+
+                // Auto-collapse non-active sprints for better initial performance
+                if (tabToLoad === 'backlog' && sprintsData.length > 2) {
+                    const collapsed = new Set<string>();
+                    sprintsData.forEach(sprint => {
+                        // Keep active sprint and backlog expanded, collapse others
+                        if (sprint.id !== activeSprintData?.id && sprint.state !== 'active') {
+                            collapsed.add(`sprint-${sprint.id}`);
+                        }
+                    });
+                    setCollapsedSprints(collapsed);
+                }
 
                 // Load issues based on active tab
                 if ((tabToLoad === 'board' || tabToLoad === 'timeline') && activeSprintData) {
@@ -440,11 +453,15 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         }));
     }, [filteredIssues, activeTab]);
 
-    // Group issues by sprint for Backlog view
+    // Group issues by sprint for Backlog view with pre-calculated stats
     const groupedBySprintIssues = React.useMemo(() => {
         if (activeTab !== 'backlog') return [];
 
-        const groups: { sprint: string, sprintId: number | null, data: JiraIssue[] }[] = [];
+        const groups: {
+            sprint: string,
+            sprintId: number | null,
+            data: JiraIssue[]
+        }[] = [];
         const addedIssueKeys = new Set<string>();
 
         // Get active sprint ID
@@ -539,11 +556,11 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         }
 
         return groups;
-    }, [filteredIssues, backlogIssues, sprints, activeTab, issueSearchQuery]);
+    }, [filteredIssues, backlogIssues, sprints, activeSprint, activeTab, issueSearchQuery]);
 
-    const handleIssuePress = (issueKey: string) => {
+    const handleIssuePress = React.useCallback((issueKey: string) => {
         setSelectedIssueKey(issueKey);
-    };
+    }, []);
 
     const handleCompleteSprint = async () => {
         if (!activeSprint) return;
@@ -599,6 +616,31 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         setShowCreateIssue(false);
     };
 
+    const toggleSprintCollapse = React.useCallback((sprintKey: string) => {
+        setCollapsedSprints(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(sprintKey)) {
+                newSet.delete(sprintKey);
+            } else {
+                newSet.add(sprintKey);
+            }
+            return newSet;
+        });
+    }, []);
+
+    const collapseAllSprints = React.useCallback(() => {
+        const allKeys = new Set<string>();
+        groupedBySprintIssues.forEach(group => {
+            const sprintKey = group.sprintId ? `sprint-${group.sprintId}` : 'backlog';
+            allKeys.add(sprintKey);
+        });
+        setCollapsedSprints(allKeys);
+    }, [groupedBySprintIssues]);
+
+    const expandAllSprints = React.useCallback(() => {
+        setCollapsedSprints(new Set());
+    }, []);
+
     const handleIssueCreated = async () => {
         setShowCreateIssue(false);
         if (selectedBoard) {
@@ -619,17 +661,54 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
     };
 
     const handleCreateSprint = async () => {
-        if (!selectedBoard) return;
+        console.log('=== handleCreateSprint called ===');
+        console.log('selectedBoard:', selectedBoard?.id);
+        console.log('newSprintName:', newSprintName);
+        console.log('newSprintStartDate:', newSprintStartDate);
+        console.log('newSprintEndDate:', newSprintEndDate);
+
+        if (!selectedBoard) {
+            console.log('No board selected - returning');
+            return;
+        }
 
         if (!newSprintName.trim()) {
+            console.log('Sprint name validation failed');
             Alert.alert('Validation Error', 'Please enter a sprint name');
             return;
         }
 
+        if (!newSprintStartDate) {
+            console.log('Start date validation failed');
+            Alert.alert('Validation Error', 'Please select a start date');
+            return;
+        }
+
+        if (!newSprintEndDate) {
+            console.log('End date validation failed');
+            Alert.alert('Validation Error', 'Please select an end date');
+            return;
+        }
+
+        if (newSprintStartDate >= newSprintEndDate) {
+            console.log('Date range validation failed');
+            Alert.alert('Validation Error', 'End date must be after start date');
+            return;
+        }
+
+        console.log('All validations passed - creating sprint');
         setCreatingSprint(true);
         try {
-            const startDateString = newSprintStartDate ? newSprintStartDate.toISOString() : undefined;
-            const endDateString = newSprintEndDate ? newSprintEndDate.toISOString() : undefined;
+            const startDateString = newSprintStartDate.toISOString();
+            const endDateString = newSprintEndDate.toISOString();
+
+            console.log('Calling API with:', {
+                boardId: selectedBoard.id,
+                name: newSprintName.trim(),
+                goal: newSprintGoal.trim() || undefined,
+                startDate: startDateString,
+                endDate: endDateString
+            });
 
             await jiraApi.createSprint(
                 selectedBoard.id,
@@ -639,6 +718,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 endDateString
             );
 
+            console.log('Sprint created successfully');
             setShowCreateSprint(false);
             Alert.alert('Success', 'Sprint created successfully');
 
@@ -1026,34 +1106,52 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 )}
 
                 {activeTab === 'backlog' && selectedBoard && (
-                    <View style={styles.filterContainer}>
-                        <Text style={styles.filterLabel}>👤 Filter by Assignee:</Text>
-                        <FlatList
-                            horizontal
-                            data={assignees}
-                            keyExtractor={(item) => item.key}
-                            renderItem={({ item }) => (
-                                <TouchableOpacity
-                                    style={[
-                                        styles.filterChip,
-                                        selectedAssignee === item.key && styles.filterChipSelected,
-                                    ]}
-                                    onPress={() => handleAssigneeChange(item.key)}
-                                >
-                                    <Text
+                    <>
+                        <View style={styles.filterContainer}>
+                            <Text style={styles.filterLabel}>👤 Filter by Assignee:</Text>
+                            <FlatList
+                                horizontal
+                                data={assignees}
+                                keyExtractor={(item) => item.key}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
                                         style={[
-                                            styles.filterChipText,
-                                            selectedAssignee === item.key && styles.filterChipTextSelected,
+                                            styles.filterChip,
+                                            selectedAssignee === item.key && styles.filterChipSelected,
                                         ]}
+                                        onPress={() => handleAssigneeChange(item.key)}
                                     >
-                                        {item.name}
-                                    </Text>
+                                        <Text
+                                            style={[
+                                                styles.filterChipText,
+                                                selectedAssignee === item.key && styles.filterChipTextSelected,
+                                            ]}
+                                        >
+                                            {item.name}
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.filterList}
+                            />
+                        </View>
+                        {groupedBySprintIssues.length > 1 && (
+                            <View style={styles.sprintControlsContainer}>
+                                <TouchableOpacity
+                                    style={styles.sprintControlButton}
+                                    onPress={expandAllSprints}
+                                >
+                                    <Text style={styles.sprintControlText}>▼ Expand All</Text>
                                 </TouchableOpacity>
-                            )}
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.filterList}
-                        />
-                    </View>
+                                <TouchableOpacity
+                                    style={styles.sprintControlButton}
+                                    onPress={collapseAllSprints}
+                                >
+                                    <Text style={styles.sprintControlText}>▶ Collapse All</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </>
                 )}
 
                 {error && boards.length === 0 ? (
@@ -1302,11 +1400,18 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                                 <Text style={styles.statusGroupTitle}>{group.status}</Text>
                                                 <Text style={styles.statusGroupCount}>({group.data.length})</Text>
                                             </View>
-                                            {group.data.map(issue => (
-                                                <View key={issue.key}>
+                                            <FlatList
+                                                data={group.data}
+                                                keyExtractor={(issue) => issue.key}
+                                                renderItem={({ item: issue }) => (
                                                     <IssueCard issue={issue} onPress={() => handleIssuePress(issue.key)} />
-                                                </View>
-                                            ))}
+                                                )}
+                                                scrollEnabled={false}
+                                                initialNumToRender={10}
+                                                maxToRenderPerBatch={10}
+                                                windowSize={5}
+                                                removeClippedSubviews={true}
+                                            />
                                         </View>
                                     )}
                                     refreshControl={
@@ -1316,25 +1421,113 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                             colors={['#0052CC']}
                                         />
                                     }
+                                    initialNumToRender={5}
+                                    maxToRenderPerBatch={5}
+                                    windowSize={5}
+                                    removeClippedSubviews={true}
                                     contentContainerStyle={styles.issuesList}
                                 />
                             ) : (
                                 <FlatList
                                     data={groupedBySprintIssues}
                                     keyExtractor={(item, index) => item.sprintId ? `sprint-${item.sprintId}` : `backlog-${index}`}
-                                    renderItem={({ item: group }) => (
-                                        <View style={styles.statusGroup}>
-                                            <View style={[styles.sprintGroupHeader]}>
-                                                <Text style={styles.sprintGroupTitle}>🏃 {group.sprint}</Text>
-                                                <Text style={styles.statusGroupCount}>({group.data.length})</Text>
+                                    renderItem={({ item: group }) => {
+                                        const sprintKey = group.sprintId ? `sprint-${group.sprintId}` : 'backlog';
+                                        const isCollapsed = collapsedSprints.has(sprintKey);
+                                        const isBacklog = group.sprint === 'Backlog';
+                                        const isActiveSprint = group.sprintId === activeSprint?.id;
+
+                                        // Calculate stats lazily - only when expanded
+                                        const stats = !isCollapsed ? {
+                                            done: group.data.filter(i => i.fields.status.statusCategory.key === 'done').length,
+                                            inProgress: group.data.filter(i => i.fields.status.statusCategory.key === 'indeterminate').length,
+                                            todo: group.data.filter(i =>
+                                                i.fields.status.statusCategory.key !== 'done' &&
+                                                i.fields.status.statusCategory.key !== 'indeterminate'
+                                            ).length,
+                                        } : null;
+
+                                        // Calculate issue stats
+                                        const doneCount = group.data.filter(i => i.fields.status.statusCategory.key === 'done').length;
+                                        const inProgressCount = group.data.filter(i => i.fields.status.statusCategory.key === 'indeterminate').length;
+                                        const todoCount = group.data.filter(i =>
+                                            i.fields.status.statusCategory.key !== 'done' &&
+                                            i.fields.status.statusCategory.key !== 'indeterminate'
+                                        ).length;
+
+                                        return (
+                                            <View style={styles.sprintSection}>
+                                                <TouchableOpacity
+                                                    style={[
+                                                        styles.sprintGroupHeader,
+                                                        isActiveSprint && styles.activeSprintHeader,
+                                                        isBacklog && styles.backlogHeader
+                                                    ]}
+                                                    onPress={() => toggleSprintCollapse(sprintKey)}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    <View style={styles.sprintHeaderLeft}>
+                                                        <Text style={styles.sprintCollapseIcon}>
+                                                            {isCollapsed ? '▶' : '▼'}
+                                                        </Text>
+                                                        <View style={styles.sprintTitleContainer}>
+                                                            <Text style={[
+                                                                styles.sprintGroupTitle,
+                                                                isActiveSprint && styles.activeSprintTitle
+                                                            ]}>
+                                                                {isBacklog ? '📋' : isActiveSprint ? '⚡' : '🏃'} {group.sprint}
+                                                            </Text>
+                                                            {isActiveSprint && (
+                                                                <View style={styles.activeSprintBadge}>
+                                                                    <Text style={styles.activeSprintBadgeText}>ACTIVE</Text>
+                                                                </View>
+                                                            )}
+                                                        </View>
+                                                    </View>
+                                                    <View style={styles.sprintHeaderRight}>
+                                                        {stats && (
+                                                            <View style={styles.sprintStats}>
+                                                                {stats.done > 0 && (
+                                                                    <View style={styles.statBadge}>
+                                                                        <Text style={styles.statIcon}>✓</Text>
+                                                                        <Text style={styles.statText}>{stats.done}</Text>
+                                                                    </View>
+                                                                )}
+                                                                {stats.inProgress > 0 && (
+                                                                    <View style={[styles.statBadge, styles.statBadgeProgress]}>
+                                                                        <Text style={styles.statIcon}>⏳</Text>
+                                                                        <Text style={styles.statText}>{stats.inProgress}</Text>
+                                                                    </View>
+                                                                )}
+                                                                {stats.todo > 0 && (
+                                                                    <View style={[styles.statBadge, styles.statBadgeTodo]}>
+                                                                        <Text style={styles.statIcon}>⭘</Text>
+                                                                        <Text style={styles.statText}>{stats.todo}</Text>
+                                                                    </View>
+                                                                )}
+                                                            </View>
+                                                        )}
+                                                        <Text style={styles.statusGroupCount}>{group.data.length}</Text>
+                                                    </View>
+                                                </TouchableOpacity>
+                                                {!isCollapsed && (
+                                                    <FlatList
+                                                        data={group.data}
+                                                        keyExtractor={(issue) => issue.key}
+                                                        renderItem={({ item: issue }) => (
+                                                            <IssueCard issue={issue} onPress={() => handleIssuePress(issue.key)} />
+                                                        )}
+                                                        scrollEnabled={false}
+                                                        initialNumToRender={10}
+                                                        maxToRenderPerBatch={10}
+                                                        windowSize={5}
+                                                        removeClippedSubviews={true}
+                                                        style={styles.sprintIssuesContainer}
+                                                    />
+                                                )}
                                             </View>
-                                            {group.data.map(issue => (
-                                                <View key={issue.key}>
-                                                    <IssueCard issue={issue} onPress={() => handleIssuePress(issue.key)} />
-                                                </View>
-                                            ))}
-                                        </View>
-                                    )}
+                                        );
+                                    }}
                                     refreshControl={
                                         <RefreshControl
                                             refreshing={refreshing}
@@ -1342,6 +1535,10 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                             colors={['#0052CC']}
                                         />
                                     }
+                                    initialNumToRender={3}
+                                    maxToRenderPerBatch={3}
+                                    windowSize={5}
+                                    removeClippedSubviews={true}
                                     contentContainerStyle={styles.issuesList}
                                 />
                             )}
@@ -1392,10 +1589,16 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                             </View>
 
                             <View style={styles.modalField}>
-                                <Text style={styles.modalLabel}>Start Date</Text>
+                                <Text style={styles.modalLabel}>Start Date *</Text>
                                 <TouchableOpacity
                                     style={styles.datePickerButton}
-                                    onPress={() => setShowStartDatePicker(true)}
+                                    onPress={() => {
+                                        // Initialize with current value or today
+                                        if (!newSprintStartDate) {
+                                            setNewSprintStartDate(new Date());
+                                        }
+                                        setShowStartDatePicker(true);
+                                    }}
                                 >
                                     <Text style={styles.datePickerText}>
                                         {newSprintStartDate
@@ -1417,6 +1620,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                             mode="date"
                                             display="spinner"
                                             onChange={(event, selectedDate) => {
+                                                // Always update the date when changed
                                                 if (selectedDate) {
                                                     setNewSprintStartDate(selectedDate);
                                                 }
@@ -1426,13 +1630,25 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                         <View style={styles.datePickerActions}>
                                             <TouchableOpacity
                                                 style={styles.datePickerCancelButton}
-                                                onPress={() => setShowStartDatePicker(false)}
+                                                onPress={() => {
+                                                    setShowStartDatePicker(false);
+                                                    // Reset to null if it was just initialized
+                                                    if (newSprintStartDate && newSprintStartDate.toDateString() === new Date().toDateString()) {
+                                                        // Don't reset if user already had a date
+                                                    }
+                                                }}
                                             >
                                                 <Text style={styles.datePickerCancelText}>Cancel</Text>
                                             </TouchableOpacity>
                                             <TouchableOpacity
                                                 style={styles.datePickerConfirmButton}
-                                                onPress={() => setShowStartDatePicker(false)}
+                                                onPress={() => {
+                                                    // Ensure date is set even if user didn't change from default
+                                                    if (!newSprintStartDate) {
+                                                        setNewSprintStartDate(new Date());
+                                                    }
+                                                    setShowStartDatePicker(false);
+                                                }}
                                             >
                                                 <Text style={styles.datePickerConfirmText}>Confirm</Text>
                                             </TouchableOpacity>
@@ -1442,10 +1658,18 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                             </View>
 
                             <View style={styles.modalField}>
-                                <Text style={styles.modalLabel}>End Date</Text>
+                                <Text style={styles.modalLabel}>End Date *</Text>
                                 <TouchableOpacity
                                     style={styles.datePickerButton}
-                                    onPress={() => setShowEndDatePicker(true)}
+                                    onPress={() => {
+                                        // Initialize with current value or date 2 weeks from now
+                                        if (!newSprintEndDate) {
+                                            const twoWeeksFromNow = new Date();
+                                            twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
+                                            setNewSprintEndDate(twoWeeksFromNow);
+                                        }
+                                        setShowEndDatePicker(true);
+                                    }}
                                 >
                                     <Text style={styles.datePickerText}>
                                         {newSprintEndDate
@@ -1463,10 +1687,15 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                             <Text style={styles.datePickerHeaderText}>Select End Date</Text>
                                         </View>
                                         <DateTimePicker
-                                            value={newSprintEndDate || new Date()}
+                                            value={newSprintEndDate || (() => {
+                                                const twoWeeks = new Date();
+                                                twoWeeks.setDate(twoWeeks.getDate() + 14);
+                                                return twoWeeks;
+                                            })()}
                                             mode="date"
                                             display="spinner"
                                             onChange={(event, selectedDate) => {
+                                                // Always update the date when changed
                                                 if (selectedDate) {
                                                     setNewSprintEndDate(selectedDate);
                                                 }
@@ -1476,13 +1705,23 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                         <View style={styles.datePickerActions}>
                                             <TouchableOpacity
                                                 style={styles.datePickerCancelButton}
-                                                onPress={() => setShowEndDatePicker(false)}
+                                                onPress={() => {
+                                                    setShowEndDatePicker(false);
+                                                }}
                                             >
                                                 <Text style={styles.datePickerCancelText}>Cancel</Text>
                                             </TouchableOpacity>
                                             <TouchableOpacity
                                                 style={styles.datePickerConfirmButton}
-                                                onPress={() => setShowEndDatePicker(false)}
+                                                onPress={() => {
+                                                    // Ensure date is set even if user didn't change from default
+                                                    if (!newSprintEndDate) {
+                                                        const twoWeeksFromNow = new Date();
+                                                        twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
+                                                        setNewSprintEndDate(twoWeeksFromNow);
+                                                    }
+                                                    setShowEndDatePicker(false);
+                                                }}
                                             >
                                                 <Text style={styles.datePickerConfirmText}>Confirm</Text>
                                             </TouchableOpacity>
@@ -1523,8 +1762,9 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                     display="default"
                     onChange={(event, selectedDate) => {
                         setShowStartDatePicker(false);
-                        if (event.type === 'set' && selectedDate) {
-                            setNewSprintStartDate(selectedDate);
+                        if (event.type === 'set') {
+                            // Set the date even if it's the default value
+                            setNewSprintStartDate(selectedDate || new Date());
                         }
                     }}
                 />
@@ -1532,13 +1772,20 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
 
             {Platform.OS === 'android' && showEndDatePicker && (
                 <DateTimePicker
-                    value={newSprintEndDate || new Date()}
+                    value={newSprintEndDate || (() => {
+                        const twoWeeks = new Date();
+                        twoWeeks.setDate(twoWeeks.getDate() + 14);
+                        return twoWeeks;
+                    })()}
                     mode="date"
                     display="default"
                     onChange={(event, selectedDate) => {
                         setShowEndDatePicker(false);
-                        if (event.type === 'set' && selectedDate) {
-                            setNewSprintEndDate(selectedDate);
+                        if (event.type === 'set') {
+                            // Set the date even if it's the default value
+                            const defaultEndDate = new Date();
+                            defaultEndDate.setDate(defaultEndDate.getDate() + 14);
+                            setNewSprintEndDate(selectedDate || defaultEndDate);
                         }
                     }}
                 />
@@ -1939,6 +2186,29 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: '#F0F0F0',
     },
+    sprintControlsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        backgroundColor: '#FAFBFC',
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
+        gap: 10,
+    },
+    sprintControlButton: {
+        paddingHorizontal: 14,
+        paddingVertical: 7,
+        borderRadius: 8,
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+    },
+    sprintControlText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#5E6C84',
+    },
     filterLabel: {
         fontSize: 12,
         fontWeight: '700',
@@ -2019,29 +2289,112 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         overflow: 'hidden',
     },
+    sprintSection: {
+        marginBottom: 16,
+    },
     sprintGroupHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 10,
-        paddingHorizontal: 14,
+        justifyContent: 'space-between',
+        paddingVertical: 14,
+        paddingHorizontal: 16,
         backgroundColor: '#E6FCFF',
-        borderRadius: 10,
-        marginBottom: 10,
-        borderLeftWidth: 4,
+        borderRadius: 12,
+        marginBottom: 2,
+        borderLeftWidth: 5,
         borderLeftColor: '#00B8D9',
         borderWidth: 1,
         borderColor: '#B3F5FF',
         shadowColor: '#00B8D9',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.08,
-        shadowRadius: 2,
-        elevation: 1,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    activeSprintHeader: {
+        backgroundColor: '#FFF3CD',
+        borderLeftColor: '#FFA500',
+        borderColor: '#FFE699',
+        shadowColor: '#FFA500',
+    },
+    backlogHeader: {
+        backgroundColor: '#F4F5F7',
+        borderLeftColor: '#6B778C',
+        borderColor: '#DFE1E6',
+        shadowColor: '#6B778C',
+    },
+    sprintHeaderLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+        gap: 10,
+    },
+    sprintHeaderRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    sprintCollapseIcon: {
+        fontSize: 12,
+        color: '#5E6C84',
+        fontWeight: '700',
+        width: 16,
+    },
+    sprintTitleContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        flex: 1,
     },
     sprintGroupTitle: {
         fontSize: 16,
         fontWeight: '700',
         color: '#00638A',
-        flex: 1,
+    },
+    activeSprintTitle: {
+        color: '#FF8B00',
+    },
+    activeSprintBadge: {
+        backgroundColor: '#FFA500',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 10,
+    },
+    activeSprintBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#fff',
+        letterSpacing: 0.5,
+    },
+    sprintStats: {
+        flexDirection: 'row',
+        gap: 6,
+    },
+    statBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#E3FCEF',
+        paddingHorizontal: 6,
+        paddingVertical: 3,
+        borderRadius: 10,
+        gap: 3,
+    },
+    statBadgeProgress: {
+        backgroundColor: '#FFF4E6',
+    },
+    statBadgeTodo: {
+        backgroundColor: '#EAE6FF',
+    },
+    statIcon: {
+        fontSize: 10,
+    },
+    statText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#172B4D',
+    },
+    sprintIssuesContainer: {
+        paddingTop: 8,
     },
     issuesList: {
         paddingHorizontal: 20,
