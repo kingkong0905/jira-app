@@ -86,6 +86,24 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     const [updatingSprint, setUpdatingSprint] = useState(false);
     const [boardId, setBoardId] = useState<number | null>(null);
 
+    // Mention autocomplete state
+    const [showMentionSuggestions, setShowMentionSuggestions] = useState(false);
+    const [mentionSuggestions, setMentionSuggestions] = useState<JiraUser[]>([]);
+    const [mentionQuery, setMentionQuery] = useState('');
+    const [mentionStartIndex, setMentionStartIndex] = useState(-1);
+    const [loadingMentions, setLoadingMentions] = useState(false);
+    const [mentionedUsersMap, setMentionedUsersMap] = useState<Map<string, JiraUser>>(new Map());
+    const commentInputRef = useRef<TextInput>(null);
+
+    // Edit comment mention state
+    const [showEditMentionSuggestions, setShowEditMentionSuggestions] = useState(false);
+    const [editMentionSuggestions, setEditMentionSuggestions] = useState<JiraUser[]>([]);
+    const [editMentionQuery, setEditMentionQuery] = useState('');
+    const [editMentionStartIndex, setEditMentionStartIndex] = useState(-1);
+    const [loadingEditMentions, setLoadingEditMentions] = useState(false);
+    const [editMentionedUsersMap, setEditMentionedUsersMap] = useState<Map<string, JiraUser>>(new Map());
+    const editCommentInputRef = useRef<TextInput>(null);
+
     useEffect(() => {
         loadIssueDetails();
         loadComments();
@@ -389,37 +407,50 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                 <View style={styles.commentBody}>
                     {comment.body.content.map((node: any, nodeIndex: number) => {
                         if (node.type === 'paragraph' && node.content) {
-                            const paragraphText = node.content.map((item: any, itemIndex: number) => {
-                                if (item.type === 'text') {
-                                    // Check if text has link mark
-                                    const linkMark = item.marks?.find((mark: any) => mark.type === 'link');
-                                    if (linkMark && linkMark.attrs?.href) {
-                                        return (
-                                            <Text
-                                                key={itemIndex}
-                                                style={styles.linkText}
-                                                onPress={() => Linking.openURL(linkMark.attrs.href)}
-                                            >
-                                                {item.text || linkMark.attrs.href}
-                                            </Text>
-                                        );
-                                    }
-
-                                    // Also check for plain URLs in text and linkify them
-                                    return linkifyText(item.text || '', { linkStyle: styles.linkText });
-                                } else if (item.type === 'mention') {
-                                    return (
-                                        <Text key={itemIndex} style={styles.mentionText}>
-                                            {item.attrs?.text || '@user'}
-                                        </Text>
-                                    );
-                                }
-                                return null;
-                            });
+                            // Render paragraph content with text and mentions
                             return (
-                                <Text key={nodeIndex} style={styles.paragraphText}>
-                                    {paragraphText}
-                                </Text>
+                                <View key={nodeIndex} style={styles.paragraphContainer}>
+                                    {node.content.map((item: any, itemIndex: number) => {
+                                        if (item.type === 'text') {
+                                            // Check if text has link mark
+                                            const linkMark = item.marks?.find((mark: any) => mark.type === 'link');
+                                            if (linkMark && linkMark.attrs?.href) {
+                                                return (
+                                                    <Text
+                                                        key={itemIndex}
+                                                        style={styles.linkText}
+                                                        onPress={() => Linking.openURL(linkMark.attrs.href)}
+                                                    >
+                                                        {item.text || linkMark.attrs.href}
+                                                    </Text>
+                                                );
+                                            }
+
+                                            // Also check for plain URLs in text and linkify them
+                                            return (
+                                                <Text key={itemIndex} style={styles.paragraphText}>
+                                                    {linkifyText(item.text || '', { linkStyle: styles.linkText })}
+                                                </Text>
+                                            );
+                                        } else if (item.type === 'mention') {
+                                            // Render mention as a styled chip/badge
+                                            const mentionText = item.attrs?.text?.replace('@', '') || 'user';
+                                            return (
+                                                <View key={itemIndex} style={styles.mentionChip}>
+                                                    <View style={styles.mentionAvatarSmall}>
+                                                        <Text style={styles.mentionAvatarSmallText}>
+                                                            {mentionText.charAt(0).toUpperCase()}
+                                                        </Text>
+                                                    </View>
+                                                    <Text style={styles.mentionChipText}>
+                                                        {mentionText}
+                                                    </Text>
+                                                </View>
+                                            );
+                                        }
+                                        return null;
+                                    })}
+                                </View>
                             );
                         } else if (node.type === 'codeBlock' && node.content) {
                             const codeText = node.content.map((text: any) => text.text || '').join('');
@@ -971,18 +1002,40 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
             Alert.alert('Not Available', 'Editing comments is not available on web due to CORS restrictions.');
             return;
         }
-        // Extract text from comment ADF
-        const extractText = (node: any): string => {
+        // Extract text from comment ADF and parse mentions
+        const extractTextAndMentions = (node: any, mentionsMap: Map<string, JiraUser>) => {
+            let text = '';
             if (node.type === 'text') {
-                return node.text || '';
+                text = node.text || '';
+            } else if (node.type === 'mention') {
+                // Extract mention info
+                const accountId = node.attrs?.id;
+                const displayName = node.attrs?.text?.replace('@', '') || '';
+                if (accountId && displayName) {
+                    // Create a user object from the mention
+                    mentionsMap.set(displayName, {
+                        accountId,
+                        displayName,
+                        emailAddress: '',
+                        avatarUrls: {},
+                        active: true,
+                        accountType: 'atlassian',
+                        locale: '',
+                        timeZone: '',
+                        self: ''
+                    } as JiraUser);
+                }
+                text = `@${displayName}`;
+            } else if (node.content) {
+                text = node.content.map((child: any) => extractTextAndMentions(child, mentionsMap)).join('');
             }
-            if (node.content) {
-                return node.content.map((child: any) => extractText(child)).join('');
-            }
-            return '';
+            return text;
         };
-        const text = comment.body ? extractText(comment.body) : '';
+
+        const mentionsMap = new Map<string, JiraUser>();
+        const text = comment.body ? extractTextAndMentions(comment.body, mentionsMap) : '';
         setEditCommentText(text);
+        setEditMentionedUsersMap(mentionsMap);
         setEditingCommentId(comment.id);
     };
 
@@ -994,10 +1047,32 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
 
         try {
             setUpdatingComment(true);
-            await jiraApi.updateComment(issueKey, editingCommentId!, editCommentText.trim());
+
+            // Extract all mentioned users from the comment text
+            const mentionedUsers: Array<{ accountId: string, displayName: string }> = [];
+            const mentionRegex = /@([A-Z][A-Za-z0-9\s._-]*?)(?=\s+[a-z]|\s*$|[.,!?;:])/g;
+            let match;
+            while ((match = mentionRegex.exec(editCommentText)) !== null) {
+                const displayName = match[1].trim();
+                const user = editMentionedUsersMap.get(displayName);
+                if (user) {
+                    mentionedUsers.push({
+                        accountId: user.accountId,
+                        displayName: user.displayName,
+                    });
+                }
+            }
+
+            await jiraApi.updateComment(
+                issueKey,
+                editingCommentId!,
+                editCommentText.trim(),
+                mentionedUsers.length > 0 ? mentionedUsers : undefined
+            );
             await loadComments();
             setEditingCommentId(null);
             setEditCommentText('');
+            setEditMentionedUsersMap(new Map());
             Alert.alert('Success', 'Comment updated');
         } catch (error: any) {
             console.error('Error updating comment:', error);
@@ -1040,34 +1115,74 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     };
 
     const handleAddComment = async () => {
+        console.log('=== handleAddComment called ===');
+
         if (!commentText.trim()) {
             Alert.alert('Error', 'Please enter a comment');
             return;
         }
+
+        console.log('Comment text passed validation:', commentText);
 
         if (Platform.OS === 'web') {
             Alert.alert('Not Available', 'Adding comments is not available on web due to CORS restrictions.');
             return;
         }
 
+        console.log('Platform check passed, proceeding...');
         try {
             setPostingComment(true);
 
-            // Find mentioned user if replying
-            let mentionedUser = undefined;
-            if (replyToCommentId) {
-                const parentComment = comments.find(c => c.id === replyToCommentId);
-                if (parentComment) {
-                    mentionedUser = {
-                        accountId: parentComment.author.accountId,
-                        displayName: parentComment.author.displayName,
-                    };
+            // Extract all mentioned users from the comment text
+            const mentionedUsers: Array<{ accountId: string, displayName: string }> = [];
+
+            console.log('Comment text:', commentText);
+            console.log('Mentioned users map:', Array.from(mentionedUsersMap.entries()));
+
+            // Find @mentions in the text
+            // Match names that start with uppercase and can contain spaces, until we hit lowercase word or punctuation
+            const mentionRegex = /@([A-Z][A-Za-z0-9\s._-]*?)(?=\s+[a-z]|\s*$|[.,!?;:])/g;
+            let match;
+            while ((match = mentionRegex.exec(commentText)) !== null) {
+                const displayName = match[1].trim();
+                console.log('Found mention:', displayName);
+                const user = mentionedUsersMap.get(displayName);
+                if (user) {
+                    console.log('User found in map:', user);
+                    mentionedUsers.push({
+                        accountId: user.accountId,
+                        displayName: user.displayName,
+                    });
+                } else {
+                    console.log('User NOT found in map for:', displayName);
                 }
             }
 
-            await jiraApi.addComment(issueKey, commentText, replyToCommentId || undefined, mentionedUser);
+            console.log('Final mentioned users:', mentionedUsers);
+
+            // Debug alert to show mentions
+            if (mentionedUsers.length > 0) {
+                console.log('DEBUG: About to add comment with mentions:', mentionedUsers.map(u => u.displayName).join(', '));
+            }
+
+            // Add parent comment author if replying
+            if (replyToCommentId) {
+                const parentComment = comments.find(c => c.id === replyToCommentId);
+                if (parentComment) {
+                    const alreadyMentioned = mentionedUsers.some(u => u.accountId === parentComment.author.accountId);
+                    if (!alreadyMentioned) {
+                        mentionedUsers.push({
+                            accountId: parentComment.author.accountId,
+                            displayName: parentComment.author.displayName,
+                        });
+                    }
+                }
+            }
+
+            await jiraApi.addComment(issueKey, commentText, replyToCommentId || undefined, mentionedUsers.length > 0 ? mentionedUsers : undefined);
             setCommentText('');
             setReplyToCommentId(null);
+            setMentionedUsersMap(new Map()); // Clear the map after posting
             await loadComments();
             Alert.alert('Success', 'Comment added successfully');
         } catch (error: any) {
@@ -1085,6 +1200,167 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     const cancelReply = () => {
         setReplyToCommentId(null);
         setCommentText('');
+    };
+
+    // Handle mention detection and autocomplete
+    const handleCommentTextChange = async (text: string) => {
+        setCommentText(text);
+
+        // Detect @ mention - but exclude email addresses
+        const cursorPosition = text.length; // For simplicity, assume cursor is at end
+
+        // Find the last @ symbol before cursor
+        let lastAtIndex = -1;
+        for (let i = cursorPosition - 1; i >= 0; i--) {
+            if (text[i] === '@') {
+                lastAtIndex = i;
+                break;
+            }
+            // Stop searching if we hit a space or newline (mention can't span these)
+            if (text[i] === ' ' || text[i] === '\n') {
+                break;
+            }
+        }
+
+        if (lastAtIndex === -1) {
+            setShowMentionSuggestions(false);
+            return;
+        }
+
+        // Check if this is part of an email address
+        // Look back before @ for characters that suggest an email
+        const beforeAt = text.substring(Math.max(0, lastAtIndex - 20), lastAtIndex);
+        const afterAt = text.substring(lastAtIndex + 1, Math.min(text.length, lastAtIndex + 50));
+
+        // If there's a domain pattern after @ (like "employmenthero.com"), it's likely an email
+        const emailDomainPattern = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+        if (emailDomainPattern.test(afterAt)) {
+            setShowMentionSuggestions(false);
+            return;
+        }
+
+        // If there's no space before @ and it contains alphanumeric, it's likely an email
+        if (lastAtIndex > 0 && text[lastAtIndex - 1] !== ' ' && text[lastAtIndex - 1] !== '\n' && /[a-zA-Z0-9]/.test(text[lastAtIndex - 1])) {
+            setShowMentionSuggestions(false);
+            return;
+        }
+
+        // Extract the query after @
+        const query = text.substring(lastAtIndex + 1, cursorPosition).trim();
+        setMentionQuery(query);
+        setMentionStartIndex(lastAtIndex);
+
+        // Fetch users matching the query
+        if (issue?.key) {
+            setLoadingMentions(true);
+            try {
+                const users = await jiraApi.getAssignableUsers(issue.key, query || undefined);
+                setMentionSuggestions(users.slice(0, 5)); // Limit to 5 suggestions
+                setShowMentionSuggestions(users.length > 0);
+            } catch (error) {
+                console.error('Error fetching mention suggestions:', error);
+                setShowMentionSuggestions(false);
+            } finally {
+                setLoadingMentions(false);
+            }
+        }
+    };
+
+    const handleSelectMention = (user: JiraUser) => {
+        if (mentionStartIndex === -1) return;
+
+        // Replace the @query with @[displayName]
+        const beforeMention = commentText.substring(0, mentionStartIndex);
+        const afterMention = commentText.substring(commentText.length);
+        const newText = `${beforeMention}@${user.displayName} ${afterMention}`;
+
+        console.log('Selected user:', user);
+        console.log('New text:', newText);
+
+        // Store the mapping of displayName to accountId
+        const updatedMap = new Map(mentionedUsersMap);
+        updatedMap.set(user.displayName, user);
+        setMentionedUsersMap(updatedMap);
+
+        console.log('Updated map entries:', Array.from(updatedMap.entries()));
+
+        setCommentText(newText);
+        setShowMentionSuggestions(false);
+        setMentionStartIndex(-1);
+
+        // Focus back on input
+        commentInputRef.current?.focus();
+    };
+
+    // Handle mention detection for edit comment
+    const handleEditCommentTextChange = async (text: string) => {
+        setEditCommentText(text);
+
+        const cursorPosition = text.length;
+        let lastAtIndex = -1;
+        for (let i = cursorPosition - 1; i >= 0; i--) {
+            if (text[i] === '@') {
+                lastAtIndex = i;
+                break;
+            }
+            if (text[i] === ' ' || text[i] === '\n') {
+                break;
+            }
+        }
+
+        if (lastAtIndex === -1) {
+            setShowEditMentionSuggestions(false);
+            return;
+        }
+
+        const beforeAt = text.substring(Math.max(0, lastAtIndex - 20), lastAtIndex);
+        const afterAt = text.substring(lastAtIndex + 1, Math.min(text.length, lastAtIndex + 50));
+        const emailDomainPattern = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+        if (emailDomainPattern.test(afterAt)) {
+            setShowEditMentionSuggestions(false);
+            return;
+        }
+
+        if (lastAtIndex > 0 && text[lastAtIndex - 1] !== ' ' && text[lastAtIndex - 1] !== '\n' && /[a-zA-Z0-9]/.test(text[lastAtIndex - 1])) {
+            setShowEditMentionSuggestions(false);
+            return;
+        }
+
+        const query = text.substring(lastAtIndex + 1, cursorPosition).trim();
+        setEditMentionQuery(query);
+        setEditMentionStartIndex(lastAtIndex);
+
+        if (issue?.key) {
+            try {
+                setLoadingEditMentions(true);
+                const users = await jiraApi.getAssignableUsers(issue.key, query);
+                setEditMentionSuggestions(users);
+                setShowEditMentionSuggestions(true);
+            } catch (error) {
+                console.error('Error fetching edit mention users:', error);
+                setShowEditMentionSuggestions(false);
+            } finally {
+                setLoadingEditMentions(false);
+            }
+        }
+    };
+
+    const handleSelectEditMention = (user: JiraUser) => {
+        if (editMentionStartIndex === -1) return;
+
+        const beforeMention = editCommentText.substring(0, editMentionStartIndex);
+        const afterMention = editCommentText.substring(editCommentText.length);
+        const newText = `${beforeMention}@${user.displayName} ${afterMention}`;
+
+        const updatedMap = new Map(editMentionedUsersMap);
+        updatedMap.set(user.displayName, user);
+        setEditMentionedUsersMap(updatedMap);
+
+        setEditCommentText(newText);
+        setShowEditMentionSuggestions(false);
+        setEditMentionStartIndex(-1);
+
+        editCommentInputRef.current?.focus();
     };
 
     // Build comment tree structure
@@ -1158,10 +1434,62 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                     </View>
                     {editingCommentId === comment.id ? (
                         <View style={styles.editCommentContainer}>
+                            {/* Edit mention suggestions */}
+                            {showEditMentionSuggestions && (
+                                <View style={styles.mentionSuggestionsPopup}>
+                                    {loadingEditMentions ? (
+                                        <View style={styles.mentionLoadingContainer}>
+                                            <ActivityIndicator size="small" color="#0052CC" />
+                                            <Text style={styles.mentionLoadingText}>Loading...</Text>
+                                        </View>
+                                    ) : editMentionSuggestions.length > 0 ? (
+                                        <ScrollView style={styles.mentionSuggestionsList}>
+                                            {editMentionSuggestions.map((user) => (
+                                                <TouchableOpacity
+                                                    key={user.accountId}
+                                                    style={styles.mentionSuggestionItem}
+                                                    onPress={() => handleSelectEditMention(user)}
+                                                >
+                                                    {user.avatarUrls?.['48x48'] ? (
+                                                        <Image
+                                                            source={{ uri: user.avatarUrls['48x48'] }}
+                                                            style={styles.mentionUserAvatar}
+                                                        />
+                                                    ) : (
+                                                        <View style={[styles.mentionUserAvatar, styles.mentionAvatarPlaceholder]}>
+                                                            <Text style={styles.mentionAvatarText}>
+                                                                {user.displayName.charAt(0).toUpperCase()}
+                                                            </Text>
+                                                        </View>
+                                                    )}
+                                                    <View style={styles.mentionUserInfo}>
+                                                        <Text style={styles.mentionUserName}>{user.displayName}</Text>
+                                                        <Text style={styles.mentionUserEmail}>{user.emailAddress}</Text>
+                                                    </View>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </ScrollView>
+                                    ) : (
+                                        <Text style={styles.mentionNoResults}>No users found</Text>
+                                    )}
+                                </View>
+                            )}
+
+                            {/* Debug badge for edit mentions */}
+                            {editMentionedUsersMap.size > 0 && (
+                                <View style={{ backgroundColor: '#E3FCEF', padding: 8, marginBottom: 8, borderRadius: 6 }}>
+                                    <Text style={{ fontSize: 12, color: '#006644' }}>
+                                        ✓ {editMentionedUsersMap.size} user{editMentionedUsersMap.size > 1 ? 's' : ''} mentioned:
+                                        {Array.from(editMentionedUsersMap.keys()).join(', ')}
+                                    </Text>
+                                </View>
+                            )}
+
                             <TextInput
+                                ref={editCommentInputRef}
                                 style={styles.editCommentInput}
                                 value={editCommentText}
-                                onChangeText={setEditCommentText}
+                                onChangeText={handleEditCommentTextChange}
                                 placeholder="Edit your comment..."
                                 multiline
                                 numberOfLines={4}
@@ -1171,6 +1499,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                     onPress={() => {
                                         setEditingCommentId(null);
                                         setEditCommentText('');
+                                        setEditMentionedUsersMap(new Map());
                                     }}
                                     style={styles.editCancelButton}
                                 >
@@ -1483,6 +1812,34 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                             )}
                         </View>
 
+                        {issue.fields.reporter && (
+                            <View style={styles.detailRow}>
+                                <View style={styles.detailIconLabel}>
+                                    <Text style={styles.detailIcon}>✍️</Text>
+                                    <Text style={styles.detailLabel}>Reporter</Text>
+                                </View>
+                                <View style={styles.detailValueContainer}>
+                                    <View style={styles.assigneeRow}>
+                                        {issue.fields.reporter.avatarUrls?.['48x48'] ? (
+                                            <Image
+                                                source={{ uri: issue.fields.reporter.avatarUrls['48x48'] }}
+                                                style={styles.assigneeAvatar}
+                                            />
+                                        ) : (
+                                            <View style={styles.avatar}>
+                                                <Text style={styles.avatarText}>
+                                                    {issue.fields.reporter.displayName.charAt(0).toUpperCase()}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        <Text style={styles.detailValue}>
+                                            {issue.fields.reporter.displayName}
+                                        </Text>
+                                    </View>
+                                </View>
+                            </View>
+                        )}
+
                         <View style={styles.sectionDivider} />
 
                         <View style={styles.detailRow}>
@@ -1679,6 +2036,47 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                 {/* Fixed Comment Input at Bottom */}
                 {Platform.OS !== 'web' && (
                     <View style={styles.fixedCommentSection}>
+                        {/* Mention Suggestions Popup */}
+                        {showMentionSuggestions && (
+                            <View style={styles.mentionSuggestionsContainer}>
+                                {loadingMentions ? (
+                                    <View style={styles.mentionLoadingContainer}>
+                                        <ActivityIndicator size="small" color="#0052CC" />
+                                        <Text style={styles.mentionLoadingText}>Loading users...</Text>
+                                    </View>
+                                ) : (
+                                    <ScrollView style={styles.mentionSuggestionsList} keyboardShouldPersistTaps="handled">
+                                        {mentionSuggestions.map((user) => (
+                                            <TouchableOpacity
+                                                key={user.accountId}
+                                                style={styles.mentionSuggestionItem}
+                                                onPress={() => handleSelectMention(user)}
+                                            >
+                                                {user.avatarUrls?.['48x48'] ? (
+                                                    <Image
+                                                        source={{ uri: user.avatarUrls['48x48'] }}
+                                                        style={styles.mentionAvatar}
+                                                    />
+                                                ) : (
+                                                    <View style={styles.mentionAvatarPlaceholder}>
+                                                        <Text style={styles.mentionAvatarText}>
+                                                            {user.displayName.charAt(0).toUpperCase()}
+                                                        </Text>
+                                                    </View>
+                                                )}
+                                                <View style={styles.mentionUserInfo}>
+                                                    <Text style={styles.mentionDisplayName}>{user.displayName}</Text>
+                                                    {user.emailAddress && (
+                                                        <Text style={styles.mentionEmail}>{user.emailAddress}</Text>
+                                                    )}
+                                                </View>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </ScrollView>
+                                )}
+                            </View>
+                        )}
+
                         {replyToCommentId && (
                             <View style={styles.replyIndicator}>
                                 <Text style={styles.replyingToText}>
@@ -1689,13 +2087,24 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                 </TouchableOpacity>
                             </View>
                         )}
+
+                        {/* Debug: Show mentioned users count */}
+                        {mentionedUsersMap.size > 0 && (
+                            <View style={{ backgroundColor: '#E3FCEF', padding: 8, marginHorizontal: 16, marginBottom: 8, borderRadius: 6 }}>
+                                <Text style={{ fontSize: 12, color: '#006644' }}>
+                                    ✓ {mentionedUsersMap.size} user{mentionedUsersMap.size > 1 ? 's' : ''} mentioned: {Array.from(mentionedUsersMap.keys()).join(', ')}
+                                </Text>
+                            </View>
+                        )}
+
                         <View style={styles.commentInputRow}>
                             <TextInput
+                                ref={commentInputRef}
                                 style={styles.commentInput}
                                 placeholder="Add a comment..."
                                 placeholderTextColor="#999"
                                 value={commentText}
-                                onChangeText={setCommentText}
+                                onChangeText={handleCommentTextChange}
                                 multiline
                                 maxLength={500}
                             />
@@ -3227,6 +3636,41 @@ const styles = StyleSheet.create({
         lineHeight: 20,
         marginBottom: 8,
     },
+    paragraphContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        marginBottom: 8,
+        gap: 4,
+    },
+    mentionChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#DEEBFF',
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 12,
+        gap: 6,
+        marginHorizontal: 2,
+    },
+    mentionAvatarSmall: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#0052CC',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    mentionAvatarSmallText: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#fff',
+    },
+    mentionChipText: {
+        fontSize: 14,
+        color: '#0052CC',
+        fontWeight: '600',
+    },
     mentionText: {
         color: '#0052CC',
         fontWeight: '600',
@@ -3686,5 +4130,84 @@ const styles = StyleSheet.create({
         fontSize: 10,
         color: '#172B4D',
         textAlign: 'center',
+    },
+    // Mention Suggestions Styles
+    mentionSuggestionsContainer: {
+        position: 'absolute',
+        bottom: '100%',
+        left: 0,
+        right: 0,
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        marginBottom: 8,
+        marginHorizontal: 16,
+        maxHeight: 250,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 8,
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+    },
+    mentionLoadingContainer: {
+        padding: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'row',
+        gap: 12,
+    },
+    mentionLoadingText: {
+        fontSize: 14,
+        color: '#5E6C84',
+    },
+    mentionSuggestionsList: {
+        maxHeight: 250,
+    },
+    mentionSuggestionItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F4F5F7',
+        gap: 12,
+    },
+    mentionAvatar: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#DFE1E6',
+    },
+    mentionAvatarPlaceholder: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#0052CC',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    mentionAvatarText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#fff',
+    },
+    mentionUserInfo: {
+        flex: 1,
+    },
+    mentionUserAvatar: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#DFE1E6',
+    },
+    mentionDisplayName: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#172B4D',
+        marginBottom: 2,
+    },
+    mentionEmail: {
+        fontSize: 12,
+        color: '#5E6C84',
     },
 });

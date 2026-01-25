@@ -29,6 +29,14 @@ export interface JiraIssue {
                 '48x48': string;
             };
         };
+        reporter?: {
+            accountId: string;
+            displayName: string;
+            emailAddress?: string;
+            avatarUrls: {
+                '48x48': string;
+            };
+        };
         issuetype: {
             name: string;
             iconUrl: string;
@@ -63,6 +71,7 @@ export interface JiraSprint {
     state: string;
     startDate?: string;
     endDate?: string;
+    goal?: string;
 }
 
 export interface JiraAttachment {

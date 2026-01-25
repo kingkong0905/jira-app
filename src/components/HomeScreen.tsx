@@ -11,7 +11,10 @@ import {
     Platform,
     TextInput,
     ScrollView,
+    Modal,
+    Image,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { jiraApi } from '../services/jiraApi';
@@ -28,7 +31,7 @@ interface HomeScreenProps {
     onOpenSettings: () => void;
 }
 
-type TabType = 'backlog' | 'board';
+type TabType = 'backlog' | 'board' | 'timeline';
 
 export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
     const [boards, setBoards] = useState<JiraBoard[]>([]);
@@ -53,6 +56,15 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
     const [isBoardDropdownExpanded, setIsBoardDropdownExpanded] = useState(false);
     const [boardAssignees, setBoardAssignees] = useState<Array<{ key: string, name: string }>>([]);
     const [showCreateIssue, setShowCreateIssue] = useState(false);
+    const [filteringIssues, setFilteringIssues] = useState(false);
+    const [showCreateSprint, setShowCreateSprint] = useState(false);
+    const [newSprintName, setNewSprintName] = useState('');
+    const [newSprintGoal, setNewSprintGoal] = useState('');
+    const [newSprintStartDate, setNewSprintStartDate] = useState<Date | null>(null);
+    const [newSprintEndDate, setNewSprintEndDate] = useState<Date | null>(null);
+    const [creatingSprint, setCreatingSprint] = useState(false);
+    const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+    const [showEndDatePicker, setShowEndDatePicker] = useState(false);
     const boardListRef = useRef<FlatList>(null);
 
     useEffect(() => {
@@ -215,7 +227,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 setActiveSprint(activeSprintData);
 
                 // Load issues based on active tab
-                if (tabToLoad === 'board' && activeSprintData) {
+                if ((tabToLoad === 'board' || tabToLoad === 'timeline') && activeSprintData) {
                     const sprintIssues = await jiraApi.getSprintIssues(boardId, activeSprintData.id, assigneeToUse);
                     setIssues(sprintIssues);
                 } else if (tabToLoad === 'backlog') {
@@ -282,7 +294,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
     const handleTabChange = async (tab: TabType) => {
         setActiveTab(tab);
         setIssueSearchQuery('');
-        setSelectedAssignee('all');
+        // Don't reset assignee filter when changing tabs - preserve the user's selection
         if (selectedBoard) {
             await loadIssuesForBoard(selectedBoard.id, tab);
         }
@@ -291,7 +303,60 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
     const handleAssigneeChange = async (assignee: string) => {
         setSelectedAssignee(assignee);
         if (selectedBoard) {
-            await loadIssuesForBoard(selectedBoard.id, undefined, assignee);
+            await filterIssuesByAssignee(assignee);
+        }
+    };
+
+    const filterIssuesByAssignee = async (assignee: string) => {
+        if (!selectedBoard) return;
+
+        setFilteringIssues(true);
+        try {
+            if ((activeTab === 'board' || activeTab === 'timeline') && activeSprint) {
+                // Filter sprint issues by assignee for both board and timeline tabs
+                const sprintIssues = await jiraApi.getSprintIssues(
+                    selectedBoard.id,
+                    activeSprint.id,
+                    assignee
+                );
+                setIssues(sprintIssues);
+            } else if (activeTab === 'backlog') {
+                // Filter backlog issues by assignee
+                const backlog = await jiraApi.getBacklogIssues(
+                    selectedBoard.id,
+                    assignee
+                );
+                setBacklogIssues(backlog);
+
+                // Also load all sprint issues with the assignee filter for backlog view
+                const allSprintIssues: JiraIssue[] = [];
+                const issueKeys = new Set<string>();
+                for (const sprint of sprints) {
+                    try {
+                        const sprintIssues = await jiraApi.getSprintIssues(
+                            selectedBoard.id,
+                            sprint.id,
+                            assignee
+                        );
+                        // Deduplicate by issue key
+                        sprintIssues.forEach(issue => {
+                            if (!issueKeys.has(issue.key)) {
+                                issueKeys.add(issue.key);
+                                allSprintIssues.push(issue);
+                            }
+                        });
+                    } catch (sprintError) {
+                        console.error(`Error loading sprint ${sprint.id}:`, sprintError);
+                        // Continue loading other sprints
+                    }
+                }
+                setIssues(allSprintIssues);
+            }
+        } catch (err) {
+            console.error('Error filtering issues by assignee:', err);
+            setError(err instanceof Error ? err.message : 'Failed to filter issues');
+        } finally {
+            setFilteringIssues(false);
         }
     };
 
@@ -404,12 +469,20 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         }
 
         // Group by other sprints (excluding active sprint to avoid duplication)
-        sprints.forEach(sprint => {
-            // Skip active sprint - it's already shown
-            if (activeSprintId && sprint.id === activeSprintId) {
-                return;
-            }
+        // Sort sprints: upcoming sprints by start date
+        const otherSprints = sprints
+            .filter(sprint => !activeSprintId || sprint.id !== activeSprintId)
+            .sort((a, b) => {
+                // Sort by start date if available
+                if (a.startDate && b.startDate) {
+                    return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+                }
+                if (a.startDate) return -1;
+                if (b.startDate) return 1;
+                return 0;
+            });
 
+        otherSprints.forEach(sprint => {
             const sprintIssues = filteredIssues.filter(issue => {
                 if (issue.fields.sprint && issue.fields.sprint.id === sprint.id && !addedIssueKeys.has(issue.key)) {
                     addedIssueKeys.add(issue.key);
@@ -506,8 +579,12 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         );
     };
 
-    const handleBackFromDetails = () => {
+    const handleBackFromDetails = async () => {
         setSelectedIssueKey(null);
+        // Refresh issues to get updated data (e.g., due date changes)
+        if (selectedBoard) {
+            await filterIssuesByAssignee(selectedAssignee);
+        }
     };
 
     const handleCreateIssue = () => {
@@ -526,6 +603,52 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
         setShowCreateIssue(false);
         if (selectedBoard) {
             await handleRefresh();
+        }
+    };
+
+    const handleCreateSprintPress = () => {
+        if (!selectedBoard) {
+            Alert.alert('No Board Selected', 'Please select a board first');
+            return;
+        }
+        setNewSprintName('');
+        setNewSprintGoal('');
+        setNewSprintStartDate(null);
+        setNewSprintEndDate(null);
+        setShowCreateSprint(true);
+    };
+
+    const handleCreateSprint = async () => {
+        if (!selectedBoard) return;
+
+        if (!newSprintName.trim()) {
+            Alert.alert('Validation Error', 'Please enter a sprint name');
+            return;
+        }
+
+        setCreatingSprint(true);
+        try {
+            const startDateString = newSprintStartDate ? newSprintStartDate.toISOString() : undefined;
+            const endDateString = newSprintEndDate ? newSprintEndDate.toISOString() : undefined;
+
+            await jiraApi.createSprint(
+                selectedBoard.id,
+                newSprintName.trim(),
+                newSprintGoal.trim() || undefined,
+                startDateString,
+                endDateString
+            );
+
+            setShowCreateSprint(false);
+            Alert.alert('Success', 'Sprint created successfully');
+
+            // Reload board data to show new sprint
+            await loadIssuesForBoard(selectedBoard.id, 'backlog');
+        } catch (error: any) {
+            console.error('Error creating sprint:', error);
+            Alert.alert('Error', error?.response?.data?.errorMessages?.[0] || 'Failed to create sprint');
+        } finally {
+            setCreatingSprint(false);
         }
     };
 
@@ -591,7 +714,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                     <View style={styles.headerLeft}>
                         <Logo size="small" showText={false} />
                         <View>
-                            <Text style={styles.headerTitle}>JiraFlow</Text>
+                            <Text style={styles.headerTitle}>Jira Management</Text>
                             <Text style={styles.headerSubtitle}>Task Manager</Text>
                         </View>
                     </View>
@@ -758,6 +881,14 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                         📦 Backlog
                                     </Text>
                                 </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.tab, activeTab === 'timeline' && styles.tabActive]}
+                                    onPress={() => handleTabChange('timeline')}
+                                >
+                                    <Text style={[styles.tabText, activeTab === 'timeline' && styles.tabTextActive]}>
+                                        📅 Timeline
+                                    </Text>
+                                </TouchableOpacity>
                             </View>
                         )}
 
@@ -817,18 +948,31 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                     return include;
                                 }).length : 0)})
                             </Text>
-                            <TouchableOpacity
-                                style={styles.createButton}
-                                onPress={handleCreateIssue}
-                            >
-                                <Text style={styles.createButtonIcon}>+</Text>
-                                <Text style={styles.createButtonText}>Create</Text>
-                            </TouchableOpacity>
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                                {activeTab === 'backlog' && selectedBoard.type?.toLowerCase() !== 'kanban' && (
+                                    <TouchableOpacity
+                                        style={styles.createSprintButton}
+                                        onPress={handleCreateSprintPress}
+                                    >
+                                        <Text style={styles.createSprintButtonIcon}>+</Text>
+                                        <Text style={styles.createSprintButtonText}>Sprint</Text>
+                                    </TouchableOpacity>
+                                )}
+                                {activeTab !== 'timeline' && (
+                                    <TouchableOpacity
+                                        style={styles.createButton}
+                                        onPress={handleCreateIssue}
+                                    >
+                                        <Text style={styles.createButtonIcon}>+</Text>
+                                        <Text style={styles.createButtonText}>Create</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
                         </View>
                     </>
                 )}
 
-                {issues.length > 0 && selectedBoard && (
+                {selectedBoard && (
                     <>
                         <View style={styles.searchContainer}>
                             <Text style={styles.searchIcon}>🔍</Text>
@@ -881,7 +1025,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                     </>
                 )}
 
-                {issues.length > 0 && activeTab === 'backlog' && selectedBoard && (
+                {activeTab === 'backlog' && selectedBoard && (
                     <View style={styles.filterContainer}>
                         <Text style={styles.filterLabel}>👤 Filter by Assignee:</Text>
                         <FlatList
@@ -931,60 +1075,474 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                             Try adjusting your search or filter criteria
                         </Text>
                     </View>
-                ) : (selectedBoard?.type?.toLowerCase() === 'kanban' || activeTab === 'board') ? (
-                    <FlatList
-                        data={groupedIssues}
-                        keyExtractor={(item) => item.status}
-                        renderItem={({ item: group }) => (
-                            <View style={styles.statusGroup}>
-                                <View style={[styles.statusGroupHeader, { borderLeftColor: getStatusColor(group.statusCategory) }]}>
-                                    <Text style={styles.statusGroupTitle}>{group.status}</Text>
-                                    <Text style={styles.statusGroupCount}>({group.data.length})</Text>
-                                </View>
-                                {group.data.map(issue => (
-                                    <View key={issue.key}>
-                                        <IssueCard issue={issue} onPress={() => handleIssuePress(issue.key)} />
-                                    </View>
-                                ))}
-                            </View>
-                        )}
-                        refreshControl={
-                            <RefreshControl
-                                refreshing={refreshing}
-                                onRefresh={handleRefresh}
-                                colors={['#0052CC']}
-                            />
-                        }
-                        contentContainerStyle={styles.issuesList}
-                    />
                 ) : (
-                    <FlatList
-                        data={groupedBySprintIssues}
-                        keyExtractor={(item, index) => item.sprintId ? `sprint-${item.sprintId}` : `backlog-${index}`}
-                        renderItem={({ item: group }) => (
-                            <View style={styles.statusGroup}>
-                                <View style={[styles.sprintGroupHeader]}>
-                                    <Text style={styles.sprintGroupTitle}>🏃 {group.sprint}</Text>
-                                    <Text style={styles.statusGroupCount}>({group.data.length})</Text>
+                    <View style={{ flex: 1, position: 'relative' }}>
+                        {filteringIssues && (
+                            <View style={styles.filteringOverlay}>
+                                <View style={styles.filteringBox}>
+                                    <ActivityIndicator size="large" color="#0052CC" />
+                                    <Text style={styles.filteringText}>Filtering...</Text>
                                 </View>
-                                {group.data.map(issue => (
-                                    <View key={issue.key}>
-                                        <IssueCard issue={issue} onPress={() => handleIssuePress(issue.key)} />
-                                    </View>
-                                ))}
                             </View>
                         )}
-                        refreshControl={
-                            <RefreshControl
-                                refreshing={refreshing}
-                                onRefresh={handleRefresh}
-                                colors={['#0052CC']}
-                            />
-                        }
-                        contentContainerStyle={styles.issuesList}
-                    />
+                        <View style={{ flex: 1 }}>
+                            {activeTab === 'timeline' ? (
+                                // Timeline Chart View
+                                activeSprint ? (
+                                    <ScrollView
+                                        style={styles.timelineContainer}
+                                        refreshControl={
+                                            <RefreshControl
+                                                refreshing={refreshing}
+                                                onRefresh={handleRefresh}
+                                                colors={['#0052CC']}
+                                            />
+                                        }
+                                    >
+                                        <View style={styles.timelineHeader}>
+                                            <Text style={styles.timelineTitle}>Sprint Timeline Chart</Text>
+                                            <Text style={styles.timelineSubtitle}>
+                                                {activeSprint.name}
+                                            </Text>
+                                        </View>
+
+                                        {/* Sprint Date Range */}
+                                        {activeSprint.startDate && activeSprint.endDate && (
+                                            <View style={styles.chartDateRange}>
+                                                <View style={styles.chartDateItem}>
+                                                    <Text style={styles.chartDateLabel}>Start Date</Text>
+                                                    <Text style={styles.chartDateValue}>
+                                                        {new Date(activeSprint.startDate).toLocaleDateString('en-US', {
+                                                            month: 'short',
+                                                            day: 'numeric',
+                                                            year: 'numeric'
+                                                        })}
+                                                    </Text>
+                                                </View>
+                                                <View style={styles.chartDateDivider} />
+                                                <View style={styles.chartDateItem}>
+                                                    <Text style={styles.chartDateLabel}>End Date</Text>
+                                                    <Text style={styles.chartDateValue}>
+                                                        {new Date(activeSprint.endDate).toLocaleDateString('en-US', {
+                                                            month: 'short',
+                                                            day: 'numeric',
+                                                            year: 'numeric'
+                                                        })}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                        )}
+
+                                        {/* Timeline Chart */}
+                                        {activeSprint.startDate && activeSprint.endDate && (
+                                            <View style={styles.timelineChart}>
+                                                {/* Timeline Bar */}
+                                                <View style={styles.timelineBar}>
+                                                    {/* Progress indicator */}
+                                                    {(() => {
+                                                        const startDate = new Date(activeSprint.startDate).getTime();
+                                                        const endDate = new Date(activeSprint.endDate).getTime();
+                                                        const today = new Date().getTime();
+                                                        const totalDuration = endDate - startDate;
+                                                        const elapsed = today - startDate;
+                                                        const progress = Math.max(0, Math.min(100, (elapsed / totalDuration) * 100));
+
+                                                        return (
+                                                            <>
+                                                                <View style={[styles.timelineProgress, { width: `${progress}%` }]} />
+                                                                <View style={[styles.timelineCurrentMarker, { left: `${progress}%` }]}>
+                                                                    <View style={styles.timelineCurrentDot} />
+                                                                    <Text style={styles.timelineCurrentText}>Today</Text>
+                                                                </View>
+                                                            </>
+                                                        );
+                                                    })()}
+                                                </View>
+                                            </View>
+                                        )}
+
+                                        {/* Issues List */}
+                                        {issues.length === 0 ? (
+                                            <View style={styles.emptyState}>
+                                                <Text style={styles.emptyText}>No issues in active sprint</Text>
+                                            </View>
+                                        ) : (
+                                            <View style={styles.chartIssuesList}>
+                                                {issues
+                                                    .filter(issue => issue.fields.issuetype.name.toLowerCase() !== 'epic')
+                                                    .sort((a, b) => {
+                                                        // Sort by due date, then by status
+                                                        const aDate = a.fields.duedate ? new Date(a.fields.duedate).getTime() : Infinity;
+                                                        const bDate = b.fields.duedate ? new Date(b.fields.duedate).getTime() : Infinity;
+                                                        return aDate - bDate;
+                                                    })
+                                                    .map(issue => {
+                                                        const dueDate = issue.fields.duedate ? new Date(issue.fields.duedate) : null;
+                                                        const sprintStartDate = activeSprint.startDate ? new Date(activeSprint.startDate) : null;
+                                                        const sprintEndDate = activeSprint.endDate ? new Date(activeSprint.endDate.split('T')[0]) : null;
+                                                        const today = new Date();
+                                                        today.setHours(0, 0, 0, 0);
+
+                                                        // Issue is overdue if: due date is past today OR due date is after sprint end date
+                                                        const isOverdue = dueDate && (
+                                                            dueDate.getTime() < today.getTime() ||
+                                                            (sprintEndDate && dueDate > sprintEndDate)
+                                                        );
+                                                        const noDueDate = !issue.fields.duedate;
+
+                                                        // Calculate position on timeline
+                                                        let position = 0;
+                                                        if (dueDate && sprintStartDate && sprintEndDate) {
+                                                            const totalDuration = sprintEndDate.getTime() - sprintStartDate.getTime();
+                                                            const issueOffset = dueDate.getTime() - sprintStartDate.getTime();
+                                                            position = Math.max(0, Math.min(100, (issueOffset / totalDuration) * 100));
+                                                        }
+
+                                                        return (
+                                                            <TouchableOpacity
+                                                                key={issue.key}
+                                                                style={styles.chartIssueItem}
+                                                                onPress={() => handleIssuePress(issue.key)}
+                                                            >
+                                                                <View style={styles.chartIssueContent}>
+                                                                    <View style={styles.chartIssueHeader}>
+                                                                        <Text style={styles.chartIssueKey}>{issue.key}</Text>
+                                                                        <View style={[
+                                                                            styles.chartStatusBadge,
+                                                                            { backgroundColor: getStatusColor(issue.fields.status.statusCategory.key || 'default') }
+                                                                        ]}>
+                                                                            <Text style={styles.chartStatusText}>{issue.fields.status.name}</Text>
+                                                                        </View>
+                                                                    </View>
+
+                                                                    <Text style={styles.chartIssueSummary} numberOfLines={2}>
+                                                                        {issue.fields.summary}
+                                                                    </Text>
+
+                                                                    <View style={styles.chartIssueMeta}>
+                                                                        {issue.fields.assignee && (
+                                                                            <View style={styles.chartAssigneeContainer}>
+                                                                                {issue.fields.assignee.avatarUrls?.['48x48'] ? (
+                                                                                    <Image
+                                                                                        source={{ uri: issue.fields.assignee.avatarUrls['48x48'] }}
+                                                                                        style={styles.chartAssigneeAvatar}
+                                                                                    />
+                                                                                ) : (
+                                                                                    <View style={styles.chartAssigneeAvatarPlaceholder}>
+                                                                                        <Text style={styles.chartAssigneeAvatarText}>
+                                                                                            {issue.fields.assignee.displayName.charAt(0).toUpperCase()}
+                                                                                        </Text>
+                                                                                    </View>
+                                                                                )}
+                                                                                <Text style={styles.chartMetaText}>
+                                                                                    {issue.fields.assignee.displayName}
+                                                                                </Text>
+                                                                            </View>
+                                                                        )}
+                                                                        {issue.fields.duedate && (
+                                                                            <Text style={[styles.chartMetaText, isOverdue && styles.overdueText]}>
+                                                                                📅 {new Date(issue.fields.duedate).toLocaleDateString('en-US', {
+                                                                                    month: 'short',
+                                                                                    day: 'numeric'
+                                                                                })}
+                                                                            </Text>
+                                                                        )}
+                                                                    </View>
+
+                                                                    {/* Timeline Position Bar */}
+                                                                    <View style={styles.chartIssueTimeline}>
+                                                                        {noDueDate ? (
+                                                                            <View style={styles.chartNoDueDateBar}>
+                                                                                <Text style={styles.chartNoDueDateText}>⏰ No Due Date</Text>
+                                                                            </View>
+                                                                        ) : (
+                                                                            <>
+                                                                                <View style={styles.chartIssueTrack}>
+                                                                                    <View
+                                                                                        style={[
+                                                                                            styles.chartIssueDot,
+                                                                                            {
+                                                                                                left: `${position}%`,
+                                                                                                backgroundColor: isOverdue ? '#DE350B' : '#0052CC'
+                                                                                            }
+                                                                                        ]}
+                                                                                    />
+                                                                                </View>
+                                                                                {isOverdue && (
+                                                                                    <View style={styles.chartOverdueBadge}>
+                                                                                        <Text style={styles.chartOverdueText}>⚠️ Overdue</Text>
+                                                                                    </View>
+                                                                                )}
+                                                                            </>
+                                                                        )}
+                                                                    </View>
+                                                                </View>
+                                                            </TouchableOpacity>
+                                                        );
+                                                    })
+                                                }
+                                            </View>
+                                        )}
+                                    </ScrollView>
+                                ) : (
+                                    <View style={styles.emptyState}>
+                                        <Text style={styles.emptyText}>No active sprint</Text>
+                                        <Text style={styles.emptySubtext}>
+                                            Please activate a sprint to view the timeline
+                                        </Text>
+                                    </View>
+                                )
+                            ) : (selectedBoard?.type?.toLowerCase() === 'kanban' || activeTab === 'board') ? (
+                                <FlatList
+                                    data={groupedIssues}
+                                    keyExtractor={(item) => item.status}
+                                    renderItem={({ item: group }) => (
+                                        <View style={styles.statusGroup}>
+                                            <View style={[styles.statusGroupHeader, { borderLeftColor: getStatusColor(group.statusCategory) }]}>
+                                                <Text style={styles.statusGroupTitle}>{group.status}</Text>
+                                                <Text style={styles.statusGroupCount}>({group.data.length})</Text>
+                                            </View>
+                                            {group.data.map(issue => (
+                                                <View key={issue.key}>
+                                                    <IssueCard issue={issue} onPress={() => handleIssuePress(issue.key)} />
+                                                </View>
+                                            ))}
+                                        </View>
+                                    )}
+                                    refreshControl={
+                                        <RefreshControl
+                                            refreshing={refreshing}
+                                            onRefresh={handleRefresh}
+                                            colors={['#0052CC']}
+                                        />
+                                    }
+                                    contentContainerStyle={styles.issuesList}
+                                />
+                            ) : (
+                                <FlatList
+                                    data={groupedBySprintIssues}
+                                    keyExtractor={(item, index) => item.sprintId ? `sprint-${item.sprintId}` : `backlog-${index}`}
+                                    renderItem={({ item: group }) => (
+                                        <View style={styles.statusGroup}>
+                                            <View style={[styles.sprintGroupHeader]}>
+                                                <Text style={styles.sprintGroupTitle}>🏃 {group.sprint}</Text>
+                                                <Text style={styles.statusGroupCount}>({group.data.length})</Text>
+                                            </View>
+                                            {group.data.map(issue => (
+                                                <View key={issue.key}>
+                                                    <IssueCard issue={issue} onPress={() => handleIssuePress(issue.key)} />
+                                                </View>
+                                            ))}
+                                        </View>
+                                    )}
+                                    refreshControl={
+                                        <RefreshControl
+                                            refreshing={refreshing}
+                                            onRefresh={handleRefresh}
+                                            colors={['#0052CC']}
+                                        />
+                                    }
+                                    contentContainerStyle={styles.issuesList}
+                                />
+                            )}
+                        </View>
+                    </View>
                 )}
             </View>
+
+            {/* Create Sprint Modal */}
+            <Modal
+                visible={showCreateSprint}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={() => setShowCreateSprint(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Create New Sprint</Text>
+                            <TouchableOpacity onPress={() => setShowCreateSprint(false)}>
+                                <Text style={styles.modalCloseButton}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView style={styles.modalBody}>
+                            <View style={styles.modalField}>
+                                <Text style={styles.modalLabel}>Sprint Name *</Text>
+                                <TextInput
+                                    style={styles.modalInput}
+                                    value={newSprintName}
+                                    onChangeText={setNewSprintName}
+                                    placeholder="Enter sprint name"
+                                    placeholderTextColor="#999"
+                                />
+                            </View>
+
+                            <View style={styles.modalField}>
+                                <Text style={styles.modalLabel}>Goal (Overview)</Text>
+                                <TextInput
+                                    style={[styles.modalInput, styles.modalTextArea]}
+                                    value={newSprintGoal}
+                                    onChangeText={setNewSprintGoal}
+                                    placeholder="Enter sprint goal"
+                                    placeholderTextColor="#999"
+                                    multiline
+                                    numberOfLines={3}
+                                />
+                            </View>
+
+                            <View style={styles.modalField}>
+                                <Text style={styles.modalLabel}>Start Date</Text>
+                                <TouchableOpacity
+                                    style={styles.datePickerButton}
+                                    onPress={() => setShowStartDatePicker(true)}
+                                >
+                                    <Text style={styles.datePickerText}>
+                                        {newSprintStartDate
+                                            ? newSprintStartDate.toLocaleDateString('en-US', {
+                                                month: 'short',
+                                                day: 'numeric',
+                                                year: 'numeric'
+                                            })
+                                            : 'Select start date'}
+                                    </Text>
+                                </TouchableOpacity>
+                                {showStartDatePicker && Platform.OS === 'ios' && (
+                                    <View style={styles.datePickerContainer}>
+                                        <View style={styles.datePickerHeader}>
+                                            <Text style={styles.datePickerHeaderText}>Select Start Date</Text>
+                                        </View>
+                                        <DateTimePicker
+                                            value={newSprintStartDate || new Date()}
+                                            mode="date"
+                                            display="spinner"
+                                            onChange={(event, selectedDate) => {
+                                                if (selectedDate) {
+                                                    setNewSprintStartDate(selectedDate);
+                                                }
+                                            }}
+                                            themeVariant="light"
+                                        />
+                                        <View style={styles.datePickerActions}>
+                                            <TouchableOpacity
+                                                style={styles.datePickerCancelButton}
+                                                onPress={() => setShowStartDatePicker(false)}
+                                            >
+                                                <Text style={styles.datePickerCancelText}>Cancel</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={styles.datePickerConfirmButton}
+                                                onPress={() => setShowStartDatePicker(false)}
+                                            >
+                                                <Text style={styles.datePickerConfirmText}>Confirm</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                )}
+                            </View>
+
+                            <View style={styles.modalField}>
+                                <Text style={styles.modalLabel}>End Date</Text>
+                                <TouchableOpacity
+                                    style={styles.datePickerButton}
+                                    onPress={() => setShowEndDatePicker(true)}
+                                >
+                                    <Text style={styles.datePickerText}>
+                                        {newSprintEndDate
+                                            ? newSprintEndDate.toLocaleDateString('en-US', {
+                                                month: 'short',
+                                                day: 'numeric',
+                                                year: 'numeric'
+                                            })
+                                            : 'Select end date'}
+                                    </Text>
+                                </TouchableOpacity>
+                                {showEndDatePicker && Platform.OS === 'ios' && (
+                                    <View style={styles.datePickerContainer}>
+                                        <View style={styles.datePickerHeader}>
+                                            <Text style={styles.datePickerHeaderText}>Select End Date</Text>
+                                        </View>
+                                        <DateTimePicker
+                                            value={newSprintEndDate || new Date()}
+                                            mode="date"
+                                            display="spinner"
+                                            onChange={(event, selectedDate) => {
+                                                if (selectedDate) {
+                                                    setNewSprintEndDate(selectedDate);
+                                                }
+                                            }}
+                                            themeVariant="light"
+                                        />
+                                        <View style={styles.datePickerActions}>
+                                            <TouchableOpacity
+                                                style={styles.datePickerCancelButton}
+                                                onPress={() => setShowEndDatePicker(false)}
+                                            >
+                                                <Text style={styles.datePickerCancelText}>Cancel</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={styles.datePickerConfirmButton}
+                                                onPress={() => setShowEndDatePicker(false)}
+                                            >
+                                                <Text style={styles.datePickerConfirmText}>Confirm</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                )}
+                            </View>
+                        </ScrollView>
+
+                        <View style={styles.modalFooter}>
+                            <TouchableOpacity
+                                style={styles.modalCancelButton}
+                                onPress={() => setShowCreateSprint(false)}
+                            >
+                                <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modalCreateButton, creatingSprint && styles.modalCreateButtonDisabled]}
+                                onPress={handleCreateSprint}
+                                disabled={creatingSprint}
+                            >
+                                {creatingSprint ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.modalCreateButtonText}>Create Sprint</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Date Pickers for Android */}
+            {Platform.OS === 'android' && showStartDatePicker && (
+                <DateTimePicker
+                    value={newSprintStartDate || new Date()}
+                    mode="date"
+                    display="default"
+                    onChange={(event, selectedDate) => {
+                        setShowStartDatePicker(false);
+                        if (event.type === 'set' && selectedDate) {
+                            setNewSprintStartDate(selectedDate);
+                        }
+                    }}
+                />
+            )}
+
+            {Platform.OS === 'android' && showEndDatePicker && (
+                <DateTimePicker
+                    value={newSprintEndDate || new Date()}
+                    mode="date"
+                    display="default"
+                    onChange={(event, selectedDate) => {
+                        setShowEndDatePicker(false);
+                        if (event.type === 'set' && selectedDate) {
+                            setNewSprintEndDate(selectedDate);
+                        }
+                    }}
+                />
+            )}
         </View>
     );
 }
@@ -1599,5 +2157,587 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '700',
         letterSpacing: 0.3,
+    },
+    createSprintButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#36B37E',
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 10,
+        shadowColor: '#36B37E',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    createSprintButtonIcon: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '700',
+        marginRight: 6,
+    },
+    createSprintButtonText: {
+        color: '#fff',
+        fontSize: 13,
+        fontWeight: '700',
+        letterSpacing: 0.3,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    modalContent: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        width: '100%',
+        maxWidth: 500,
+        maxHeight: '80%',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E1E4E8',
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#172B4D',
+    },
+    modalCloseButton: {
+        fontSize: 24,
+        color: '#666',
+        fontWeight: '300',
+    },
+    modalBody: {
+        padding: 20,
+    },
+    modalField: {
+        marginBottom: 20,
+    },
+    modalLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#172B4D',
+        marginBottom: 8,
+    },
+    modalInput: {
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 15,
+        color: '#172B4D',
+        backgroundColor: '#FAFBFC',
+    },
+    modalTextArea: {
+        height: 80,
+        textAlignVertical: 'top',
+    },
+    datePickerButton: {
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+        borderRadius: 8,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        backgroundColor: '#FAFBFC',
+    },
+    datePickerText: {
+        fontSize: 15,
+        color: '#172B4D',
+    },
+    datePickerContainer: {
+        marginTop: 12,
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 4,
+        borderWidth: 1,
+        borderColor: '#E1E4E8',
+    },
+    datePickerHeader: {
+        backgroundColor: '#F4F5F7',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E1E4E8',
+    },
+    datePickerHeaderText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#172B4D',
+        textAlign: 'center',
+    },
+    datePickerActions: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        padding: 12,
+        gap: 12,
+        borderTopWidth: 1,
+        borderTopColor: '#E1E4E8',
+        backgroundColor: '#FAFBFC',
+    },
+    datePickerCancelButton: {
+        flex: 1,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        backgroundColor: '#F4F5F7',
+        alignItems: 'center',
+    },
+    datePickerCancelText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#5E6C84',
+    },
+    datePickerConfirmButton: {
+        flex: 1,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        backgroundColor: '#0052CC',
+        alignItems: 'center',
+    },
+    datePickerConfirmText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#fff',
+    },
+    datePickerDoneButton: {
+        backgroundColor: '#0052CC',
+        padding: 12,
+        alignItems: 'center',
+    },
+    datePickerDoneText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    modalFooter: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 12,
+        padding: 20,
+        borderTopWidth: 1,
+        borderTopColor: '#E1E4E8',
+    },
+    modalCancelButton: {
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+        backgroundColor: '#F4F5F7',
+    },
+    modalCancelButtonText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#42526E',
+    },
+    modalCreateButton: {
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+        backgroundColor: '#0052CC',
+        minWidth: 140,
+        alignItems: 'center',
+    },
+    modalCreateButtonDisabled: {
+        opacity: 0.6,
+    },
+    modalCreateButtonText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#fff',
+    },
+    filteringOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        zIndex: 1000,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    filteringBox: {
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    filteringText: {
+        marginTop: 10,
+        fontSize: 14,
+        color: '#5E6C84',
+    },
+    timelineContainer: {
+        flex: 1,
+        backgroundColor: '#F4F5F7',
+    },
+    timelineHeader: {
+        backgroundColor: '#fff',
+        padding: 20,
+        marginBottom: 12,
+        borderBottomWidth: 3,
+        borderBottomColor: '#0052CC',
+    },
+    timelineTitle: {
+        fontSize: 22,
+        fontWeight: '700',
+        color: '#172B4D',
+        marginBottom: 6,
+    },
+    timelineSubtitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#0052CC',
+        marginBottom: 4,
+    },
+    timelineEndDate: {
+        fontSize: 13,
+        color: '#5E6C84',
+        marginTop: 4,
+    },
+    timelineItem: {
+        backgroundColor: '#fff',
+        marginHorizontal: 16,
+        marginBottom: 12,
+        borderRadius: 12,
+        padding: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    timelineItemHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    timelineItemLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        flex: 1,
+    },
+    timelineItemKey: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#0052CC',
+    },
+    dangerBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFEBE6',
+        borderRadius: 12,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        gap: 4,
+    },
+    dangerIcon: {
+        fontSize: 12,
+    },
+    dangerText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#DE350B',
+    },
+    warningBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFF7E6',
+        borderRadius: 12,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        gap: 4,
+    },
+    warningIcon: {
+        fontSize: 12,
+    },
+    warningText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#FF991F',
+    },
+    timelineStatusBadge: {
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 12,
+    },
+    timelineStatusText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#fff',
+    },
+    timelineItemSummary: {
+        fontSize: 15,
+        fontWeight: '500',
+        color: '#172B4D',
+        lineHeight: 20,
+        marginBottom: 12,
+    },
+    timelineItemFooter: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    timelineItemMeta: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    timelineItemMetaLabel: {
+        fontSize: 12,
+        color: '#5E6C84',
+        fontWeight: '500',
+    },
+    timelineItemMetaValue: {
+        fontSize: 12,
+        color: '#172B4D',
+        fontWeight: '600',
+    },
+    overdueText: {
+        color: '#DE350B',
+        fontWeight: '700',
+    },
+    // Chart Timeline Styles
+    chartDateRange: {
+        flexDirection: 'row',
+        backgroundColor: '#fff',
+        marginHorizontal: 16,
+        marginBottom: 16,
+        borderRadius: 12,
+        padding: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    chartDateItem: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    chartDateLabel: {
+        fontSize: 12,
+        color: '#5E6C84',
+        fontWeight: '600',
+        marginBottom: 6,
+        textTransform: 'uppercase',
+    },
+    chartDateValue: {
+        fontSize: 15,
+        color: '#172B4D',
+        fontWeight: '700',
+    },
+    chartDateDivider: {
+        width: 1,
+        backgroundColor: '#DFE1E6',
+        marginHorizontal: 16,
+    },
+    timelineChart: {
+        backgroundColor: '#fff',
+        marginHorizontal: 16,
+        marginBottom: 20,
+        borderRadius: 12,
+        padding: 20,
+        paddingBottom: 50,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    timelineBar: {
+        height: 12,
+        backgroundColor: '#E1E4E8',
+        borderRadius: 6,
+        position: 'relative',
+        marginVertical: 30,
+    },
+    timelineProgress: {
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        bottom: 0,
+        backgroundColor: '#0052CC',
+        borderRadius: 6,
+    },
+    timelineCurrentMarker: {
+        position: 'absolute',
+        top: -4,
+        alignItems: 'center',
+        zIndex: 10,
+        marginLeft: -10,
+    },
+    timelineCurrentDot: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#0052CC',
+        borderWidth: 4,
+        borderColor: '#fff',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 5,
+    },
+    timelineCurrentText: {
+        marginTop: 28,
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#fff',
+        backgroundColor: '#0052CC',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+        overflow: 'hidden',
+    },
+    chartIssuesList: {
+        paddingHorizontal: 16,
+    },
+    chartIssueItem: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        marginBottom: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    chartIssueContent: {
+        padding: 16,
+    },
+    chartIssueHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    chartIssueKey: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#0052CC',
+    },
+    chartStatusBadge: {
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 12,
+    },
+    chartStatusText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#fff',
+        textTransform: 'uppercase',
+    },
+    chartIssueSummary: {
+        fontSize: 15,
+        fontWeight: '500',
+        color: '#172B4D',
+        lineHeight: 20,
+        marginBottom: 10,
+    },
+    chartIssueMeta: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 12,
+        marginBottom: 12,
+        alignItems: 'center',
+    },
+    chartAssigneeContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    chartAssigneeAvatar: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#DFE1E6',
+    },
+    chartAssigneeAvatarPlaceholder: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#0052CC',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    chartAssigneeAvatarText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#fff',
+    },
+    chartMetaText: {
+        fontSize: 12,
+        color: '#5E6C84',
+        fontWeight: '500',
+    },
+    chartIssueTimeline: {
+        marginTop: 4,
+    },
+    chartIssueTrack: {
+        height: 8,
+        backgroundColor: '#E1E4E8',
+        borderRadius: 4,
+        position: 'relative',
+        marginBottom: 8,
+    },
+    chartIssueDot: {
+        position: 'absolute',
+        top: -4,
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        borderWidth: 3,
+        borderColor: '#fff',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 3,
+        elevation: 3,
+        transform: [{ translateX: -8 }],
+    },
+    chartNoDueDateBar: {
+        backgroundColor: '#FFF7E6',
+        borderWidth: 1,
+        borderColor: '#FF991F',
+        borderStyle: 'dashed',
+        borderRadius: 6,
+        padding: 8,
+        alignItems: 'center',
+    },
+    chartNoDueDateText: {
+        fontSize: 12,
+        color: '#FF991F',
+        fontWeight: '600',
+    },
+    chartOverdueBadge: {
+        backgroundColor: '#FFEBE6',
+        borderRadius: 8,
+        padding: 6,
+        alignItems: 'center',
+    },
+    chartOverdueText: {
+        fontSize: 11,
+        color: '#DE350B',
+        fontWeight: '600',
     },
 });

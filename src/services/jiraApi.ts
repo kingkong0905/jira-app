@@ -270,12 +270,36 @@ class JiraApiService {
         }
     }
 
+    async createSprint(boardId: number, name: string, goal?: string, startDate?: string, endDate?: string): Promise<JiraSprint> {
+        try {
+            const api = this.getAxiosInstance();
+            const data: any = {
+                name,
+                originBoardId: boardId,
+            };
+
+            if (goal) data.goal = goal;
+            if (startDate) data.startDate = startDate;
+            if (endDate) data.endDate = endDate;
+
+            const response = await api.post('/rest/agile/1.0/sprint', data);
+
+            // Clear sprints cache for this board
+            this.clearCache();
+
+            return response.data;
+        } catch (error) {
+            console.error('Error creating sprint:', error);
+            throw error;
+        }
+    }
+
     async getSprintIssues(boardId: number, sprintId: number, assignee?: string): Promise<JiraIssue[]> {
         try {
             const api = this.getAxiosInstance();
             const params: any = {
                 maxResults: 100,
-                fields: 'summary,description,status,priority,assignee,issuetype,created,updated,sprint',
+                fields: 'summary,description,status,priority,assignee,issuetype,created,updated,duedate,sprint,customfield_10016,customfield_10020',
             };
 
             // Add JQL filter for assignee if specified
@@ -302,7 +326,7 @@ class JiraApiService {
             const api = this.getAxiosInstance();
             const params: any = {
                 maxResults: 100,
-                fields: 'summary,description,status,priority,assignee,issuetype,created,updated,sprint',
+                fields: 'summary,description,status,priority,assignee,issuetype,created,updated,duedate,sprint,customfield_10016,customfield_10020',
             };
 
             // Add JQL filter for assignee if specified
@@ -337,7 +361,7 @@ class JiraApiService {
             const api = this.getAxiosInstance();
             const response = await api.get(`/rest/api/3/issue/${issueKey}`, {
                 params: {
-                    fields: 'summary,description,status,priority,assignee,issuetype,created,updated,reporter,attachment,duedate,customfield_10016,customfield_10020',
+                    fields: 'summary,description,status,priority,assignee,reporter,issuetype,created,updated,duedate,comment,attachment,customfield_10016,customfield_10020',
                 },
             });
 
@@ -371,43 +395,77 @@ class JiraApiService {
         }
     }
 
-    async addComment(issueKey: string, commentText: string, parentCommentId?: string, mentionedUser?: { accountId: string, displayName: string }): Promise<any> {
+    async addComment(issueKey: string, commentText: string, parentCommentId?: string, mentionedUsers?: Array<{ accountId: string, displayName: string }>): Promise<any> {
         try {
             const api = this.getAxiosInstance();
 
-            // Build content with mention if provided
+            // Parse comment text and build content with inline mentions
             const content: any[] = [];
 
-            if (mentionedUser) {
-                // Add mention node
+            if (mentionedUsers && mentionedUsers.length > 0) {
+                // Create a map for quick lookup
+                const userMap = new Map(mentionedUsers.map(u => [u.displayName, u]));
+
+                // Split text by @mentions and build content nodes
+                const paragraphContent: any[] = [];
+                let lastIndex = 0;
+                // Match names that start with uppercase and can contain spaces, until we hit lowercase word or punctuation
+                const mentionRegex = /@([A-Z][A-Za-z0-9\s._-]*?)(?=\s+[a-z]|\s*$|[.,!?;:])/g;
+                let match;
+
+                while ((match = mentionRegex.exec(commentText)) !== null) {
+                    const displayName = match[1].trim();
+                    const user = userMap.get(displayName);
+
+                    if (user) {
+                        // Add text before mention
+                        if (match.index > lastIndex) {
+                            paragraphContent.push({
+                                type: 'text',
+                                text: commentText.substring(lastIndex, match.index),
+                            });
+                        }
+
+                        // Add mention node
+                        paragraphContent.push({
+                            type: 'mention',
+                            attrs: {
+                                id: user.accountId,
+                                text: `@${user.displayName}`,
+                            },
+                        });
+
+                        lastIndex = match.index + match[0].length;
+                    }
+                }
+
+                // Add remaining text
+                if (lastIndex < commentText.length) {
+                    paragraphContent.push({
+                        type: 'text',
+                        text: commentText.substring(lastIndex),
+                    });
+                }
+
+                content.push({
+                    type: 'paragraph',
+                    content: paragraphContent.length > 0 ? paragraphContent : [{
+                        type: 'text',
+                        text: commentText,
+                    }],
+                });
+            } else {
+                // No mentions, just add plain text
                 content.push({
                     type: 'paragraph',
                     content: [
                         {
-                            type: 'mention',
-                            attrs: {
-                                id: mentionedUser.accountId,
-                                text: `@${mentionedUser.displayName}`,
-                            },
-                        },
-                        {
                             type: 'text',
-                            text: ' ',
+                            text: commentText,
                         },
                     ],
                 });
             }
-
-            // Add comment text
-            content.push({
-                type: 'paragraph',
-                content: [
-                    {
-                        type: 'text',
-                        text: commentText,
-                    },
-                ],
-            });
 
             const payload: any = {
                 body: {
@@ -416,6 +474,8 @@ class JiraApiService {
                     content,
                 },
             };
+
+            console.log('Comment payload:', JSON.stringify(payload, null, 2));
 
             // Add parent field for reply (only works in Jira Service Management)
             if (parentCommentId) {
@@ -438,24 +498,84 @@ class JiraApiService {
         }
     }
 
-    async updateComment(issueKey: string, commentId: string, commentText: string): Promise<any> {
+    async updateComment(
+        issueKey: string,
+        commentId: string,
+        commentText: string,
+        mentionedUsers?: Array<{ accountId: string, displayName: string }>
+    ): Promise<any> {
         try {
             const api = this.getAxiosInstance();
+
+            // Parse comment text and build content with inline mentions
+            const content: any[] = [];
+
+            if (mentionedUsers && mentionedUsers.length > 0) {
+                // Create a map for quick lookup
+                const userMap = new Map(mentionedUsers.map(u => [u.displayName, u]));
+
+                // Split text by @mentions and build content nodes
+                const paragraphContent: any[] = [];
+                let lastIndex = 0;
+                const mentionRegex = /@([A-Z][A-Za-z0-9\s._-]*?)(?=\s+[a-z]|\s*$|[.,!?;:])/g;
+                let match;
+
+                while ((match = mentionRegex.exec(commentText)) !== null) {
+                    const displayName = match[1].trim();
+                    const user = userMap.get(displayName);
+
+                    if (user) {
+                        // Add text before mention
+                        if (match.index > lastIndex) {
+                            paragraphContent.push({
+                                type: 'text',
+                                text: commentText.substring(lastIndex, match.index),
+                            });
+                        }
+
+                        // Add mention node
+                        paragraphContent.push({
+                            type: 'mention',
+                            attrs: {
+                                id: user.accountId,
+                                text: `@${user.displayName}`,
+                            },
+                        });
+
+                        lastIndex = match.index + match[0].length;
+                    }
+                }
+
+                // Add remaining text
+                if (lastIndex < commentText.length) {
+                    paragraphContent.push({
+                        type: 'text',
+                        text: commentText.substring(lastIndex),
+                    });
+                }
+
+                content.push({
+                    type: 'paragraph',
+                    content: paragraphContent,
+                });
+            } else {
+                // No mentions, simple text paragraph
+                content.push({
+                    type: 'paragraph',
+                    content: [
+                        {
+                            type: 'text',
+                            text: commentText,
+                        },
+                    ],
+                });
+            }
+
             const payload = {
                 body: {
                     type: 'doc',
                     version: 1,
-                    content: [
-                        {
-                            type: 'paragraph',
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: commentText,
-                                },
-                            ],
-                        },
-                    ],
+                    content,
                 },
             };
 

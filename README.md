@@ -1,11 +1,11 @@
-# JiraFlow - Jira Management App 🎯
+# Jira Management - Jira Management App 🎯
 
 A beautiful React Native application for managing Jira boards and viewing tickets with a modern, professional UI.
 
 ## ✨ Features
 
 - **🎨 Fancy Modern UI**: Professional design with gradients, shadows, and smooth animations
-- **🎯 Custom Logo**: Branded "JiraFlow" logo with checkmark design
+- **🎯 Custom Logo**: Branded "Jira Management" logo with checkmark design
 - **🔐 Secure Setup**: Input email, Jira URL, and API token with validation
 - **📊 Board Management**: Browse and view tickets from your Jira boards
 - **🎴 Beautiful Cards**: Modern issue cards with status colors, priority indicators, and avatars
