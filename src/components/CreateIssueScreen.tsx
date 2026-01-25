@@ -19,6 +19,8 @@ import { RichEditor, RichToolbar, actions } from 'react-native-pell-rich-editor'
 import { jiraApi } from '../services/jiraApi';
 import PickerModal, { PickerItem } from './shared/PickerModal';
 import { formatDateOnly, getPriorityEmoji } from '../utils/helpers';
+import { SkeletonLoader, SkeletonText } from './shared/SkeletonLoader';
+import { FadeInView } from './shared/FadeInView';
 
 interface CreateIssueScreenProps {
     boardId: number;
@@ -38,11 +40,13 @@ export default function CreateIssueScreen({
     const [sprints, setSprints] = useState<any[]>([]);
     const [assignableUsers, setAssignableUsers] = useState<any[]>([]);
     const [parentIssues, setParentIssues] = useState<any[]>([]);
+    const [priorities, setPriorities] = useState<any[]>([]);
 
     const [selectedIssueType, setSelectedIssueType] = useState<string>('');
     const [summary, setSummary] = useState('');
     const [description, setDescription] = useState('');
     const [selectedAssignee, setSelectedAssignee] = useState<string | null>(null);
+    const [selectedPriority, setSelectedPriority] = useState<string | null>(null);
     const [dueDate, setDueDate] = useState<Date | null>(null);
     const [tempDate, setTempDate] = useState<Date | null>(null); // Temporary date for picker
     const [storyPoints, setStoryPoints] = useState('');
@@ -50,6 +54,7 @@ export default function CreateIssueScreen({
     const [selectedParent, setSelectedParent] = useState<string | null>(null);
 
     const [showIssueTypePicker, setShowIssueTypePicker] = useState(false);
+    const [showPriorityPicker, setShowPriorityPicker] = useState(false);
     const [showAssigneePicker, setShowAssigneePicker] = useState(false);
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showSprintPicker, setShowSprintPicker] = useState(false);
@@ -58,6 +63,7 @@ export default function CreateIssueScreen({
 
     const [loading, setLoading] = useState(true);
     const [creating, setCreating] = useState(false);
+    const [generatingDescription, setGeneratingDescription] = useState(false);
 
     const richEditorRef = useRef<RichEditor>(null);
 
@@ -92,13 +98,15 @@ export default function CreateIssueScreen({
             }
 
             // Load data in parallel
-            const [typesData, sprintsData, usersData] = await Promise.all([
+            const [typesData, sprintsData, usersData, prioritiesData] = await Promise.all([
                 jiraApi.getIssueTypesForProject(projId),
                 jiraApi.getSprintsForBoard(boardId),
                 jiraApi.getAssignableUsersForProject(projId),
+                jiraApi.getPriorities(),
             ]);
 
             setIssueTypes(typesData);
+            setPriorities(prioritiesData);
 
             // Filter active and future sprints
             const activeAndFutureSprints = sprintsData.filter(
@@ -175,6 +183,7 @@ export default function CreateIssueScreen({
                 summary: summary.trim(),
                 description: description.trim() || undefined,
                 assignee: selectedAssignee,
+                priority: selectedPriority || undefined,
                 dueDate: dueDate ? dueDate.toISOString().split('T')[0] : undefined,
                 storyPoints: storyPoints ? parseFloat(storyPoints) : undefined,
                 sprintId: selectedSprint || undefined,
@@ -223,6 +232,37 @@ export default function CreateIssueScreen({
         if (!selectedParent) return 'None';
         const parent = parentIssues.find(i => i.key === selectedParent);
         return parent ? `${parent.key}: ${parent.fields.summary}` : 'None';
+    };
+
+    const getSelectedPriorityName = () => {
+        if (!selectedPriority) return 'None';
+        const priority = priorities.find(p => p.id === selectedPriority);
+        return priority ? `${getPriorityEmoji(priority.name)} ${priority.name}` : 'None';
+    };
+
+    const handleGenerateDescription = async () => {
+        if (!summary.trim()) {
+            Alert.alert('Summary Required', 'Please enter a summary first before generating description.');
+            return;
+        }
+
+        try {
+            setGeneratingDescription(true);
+            const selectedType = issueTypes.find(t => t.id === selectedIssueType);
+            const issueTypeName = selectedType?.name;
+
+            const generatedDesc = await jiraApi.generateDescription(summary.trim(), issueTypeName);
+
+            if (generatedDesc) {
+                setDescription(generatedDesc);
+                richEditorRef.current?.setContentHTML(generatedDesc);
+            }
+        } catch (error) {
+            console.error('Error generating description:', error);
+            Alert.alert('Error', 'Failed to generate description template. Please try again.');
+        } finally {
+            setGeneratingDescription(false);
+        }
     };
 
     const shouldShowParentField = () => {
@@ -290,9 +330,28 @@ export default function CreateIssueScreen({
                     <Text style={styles.headerTitle}>Create Issue</Text>
                     <View style={styles.placeholder} />
                 </LinearGradient>
-                <View style={styles.centerContainer}>
-                    <ActivityIndicator size="large" color="#0052CC" />
-                </View>
+                <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
+                    <View style={styles.field}>
+                        <SkeletonLoader width={100} height={16} style={{ marginBottom: 8 }} />
+                        <SkeletonLoader width="100%" height={48} borderRadius={8} />
+                    </View>
+                    <View style={styles.field}>
+                        <SkeletonLoader width={80} height={16} style={{ marginBottom: 8 }} />
+                        <SkeletonLoader width="100%" height={48} borderRadius={8} />
+                    </View>
+                    <View style={styles.field}>
+                        <SkeletonLoader width={70} height={16} style={{ marginBottom: 8 }} />
+                        <SkeletonLoader width="100%" height={48} borderRadius={8} />
+                    </View>
+                    <View style={styles.field}>
+                        <SkeletonLoader width={90} height={16} style={{ marginBottom: 8 }} />
+                        <SkeletonLoader width="100%" height={150} borderRadius={8} />
+                    </View>
+                    <View style={styles.field}>
+                        <SkeletonLoader width={80} height={16} style={{ marginBottom: 8 }} />
+                        <SkeletonLoader width="100%" height={48} borderRadius={8} />
+                    </View>
+                </ScrollView>
             </View>
         );
     }
@@ -349,7 +408,17 @@ export default function CreateIssueScreen({
                             <Text style={styles.pickerIcon}>▼</Text>
                         </TouchableOpacity>
                     </View>
-
+                    {/* Priority */}
+                    <View style={styles.field}>
+                        <Text style={styles.label}>Priority</Text>
+                        <TouchableOpacity
+                            style={styles.picker}
+                            onPress={() => setShowPriorityPicker(true)}
+                        >
+                            <Text style={styles.pickerText}>{getSelectedPriorityName()}</Text>
+                            <Text style={styles.pickerIcon}>▼</Text>
+                        </TouchableOpacity>
+                    </View>
                     {/* Parent (conditional) */}
                     {shouldShowParentField() && (
                         <View style={styles.field}>
@@ -386,7 +455,30 @@ export default function CreateIssueScreen({
 
                     {/* Description */}
                     <View style={styles.field}>
-                        <Text style={styles.label}>Description</Text>
+                        <View style={styles.labelRow}>
+                            <Text style={styles.label}>Description</Text>
+                            <TouchableOpacity
+                                style={[
+                                    styles.aiButton,
+                                    (generatingDescription || !summary.trim()) && styles.aiButtonDisabled
+                                ]}
+                                onPress={handleGenerateDescription}
+                                disabled={generatingDescription || !summary.trim()}
+                                activeOpacity={0.7}
+                            >
+                                {generatingDescription ? (
+                                    <ActivityIndicator size="small" color="#0052CC" />
+                                ) : (
+                                    <>
+                                        <Text style={styles.aiButtonIcon}>✨</Text>
+                                        <Text style={[
+                                            styles.aiButtonText,
+                                            !summary.trim() && styles.aiButtonTextDisabled
+                                        ]}>Generate</Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
+                        </View>
                         <View style={styles.richEditorContainer}>
                             <RichToolbar
                                 editor={richEditorRef}
@@ -396,6 +488,8 @@ export default function CreateIssueScreen({
                                     actions.setUnderline,
                                     actions.insertBulletsList,
                                     actions.insertOrderedList,
+                                    actions.code,
+                                    actions.blockquote,
                                 ]}
                                 iconTint="#172B4D"
                                 selectedIconTint="#0052CC"
@@ -510,6 +604,46 @@ export default function CreateIssueScreen({
                 onSelect={(id: string) => {
                     setSelectedIssueType(id);
                     setShowIssueTypePicker(false);
+                }}
+                showCurrentValue={false}
+            />
+            {/* Priority Picker */}
+            <PickerModal
+                visible={showPriorityPicker}
+                title="Select Priority"
+                currentValue={selectedPriority || ''}
+                currentLabel={getSelectedPriorityName()}
+                items={priorities.map(priority => ({
+                    id: priority.id,
+                    label: priority.name,
+                    emoji: getPriorityEmoji(priority.name),
+                }))}
+                allowUnselect={true}
+                unselectLabel="No Priority"
+                onClose={() => setShowPriorityPicker(false)}
+                onSelect={(id: string) => {
+                    setSelectedPriority(id || null);
+                    setShowPriorityPicker(false);
+                }}
+                showCurrentValue={false}
+            />
+            {/* Priority Picker */}
+            <PickerModal
+                visible={showPriorityPicker}
+                title="Select Priority"
+                currentValue={selectedPriority || ''}
+                currentLabel={getSelectedPriorityName()}
+                items={priorities.map(priority => ({
+                    id: priority.id,
+                    label: priority.name,
+                    emoji: getPriorityEmoji(priority.name),
+                }))}
+                allowUnselect={true}
+                unselectLabel="No Priority"
+                onClose={() => setShowPriorityPicker(false)}
+                onSelect={(id: string) => {
+                    setSelectedPriority(id || null);
+                    setShowPriorityPicker(false);
                 }}
                 showCurrentValue={false}
             />
@@ -687,6 +821,40 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#172B4D',
         marginBottom: 8,
+    },
+    labelRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    aiButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F4F5F7',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+        gap: 6,
+        minHeight: 32,
+    },
+    aiButtonDisabled: {
+        backgroundColor: '#FAFBFC',
+        borderColor: '#E8EBED',
+        opacity: 0.6,
+    },
+    aiButtonIcon: {
+        fontSize: 16,
+    },
+    aiButtonText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#0052CC',
+    },
+    aiButtonTextDisabled: {
+        color: '#8993A4',
     },
     required: {
         color: '#DE350B',

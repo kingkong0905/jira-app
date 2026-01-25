@@ -23,6 +23,8 @@ import { JiraIssue, JiraComment, JiraAttachment, JiraUser } from '../types/jira'
 import { jiraApi } from '../services/jiraApi';
 import { formatDate, formatDateOnly } from '../utils/helpers';
 import { linkifyText } from '../utils/linkify';
+import { SkeletonLoader, SkeletonText } from './shared/SkeletonLoader';
+import { FadeInView } from './shared/FadeInView';
 
 interface IssueDetailsScreenProps {
     issueKey: string;
@@ -78,6 +80,11 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     const [updatingComment, setUpdatingComment] = useState(false);
     const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
     const [currentUser, setCurrentUser] = useState<any>(null);
+    const [showSprintPicker, setShowSprintPicker] = useState(false);
+    const [availableSprints, setAvailableSprints] = useState<any[]>([]);
+    const [loadingSprints, setLoadingSprints] = useState(false);
+    const [updatingSprint, setUpdatingSprint] = useState(false);
+    const [boardId, setBoardId] = useState<number | null>(null);
 
     useEffect(() => {
         loadIssueDetails();
@@ -509,7 +516,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                     )
                                 ) : (
                                     <View style={styles.attachmentIconContainer}>
-                                        <Text style={styles.attachmentIcon}>
+                                        <Text style={styles.editModalAttachmentIconLarge}>
                                             {getFileIcon(mimeType)}
                                         </Text>
                                     </View>
@@ -745,6 +752,70 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
             Alert.alert('Error', error?.response?.data?.errorMessages?.[0] || 'Failed to update story points');
         } finally {
             setUpdatingStoryPoints(false);
+        }
+    };
+
+    const handleSprintPress = async () => {
+        if (Platform.OS === 'web') {
+            Alert.alert('Not Available', 'Changing sprint is not available on web due to CORS restrictions.');
+            return;
+        }
+
+        try {
+            setLoadingSprints(true);
+            setShowSprintPicker(true);
+
+            // Get all boards to find the one for this issue
+            const boardsResponse = await jiraApi.getBoards();
+            const boards = boardsResponse.boards || [];
+            let foundBoardId: number | null = null;
+
+            // Try to find board by checking if issue is in it
+            for (const board of boards) {
+                try {
+                    const issues = await jiraApi.getBoardIssues(board.id, 10);
+                    if (issues.some(i => i.key === issueKey)) {
+                        foundBoardId = board.id;
+                        break;
+                    }
+                } catch (err) {
+                    // Continue to next board
+                }
+            }
+
+            if (!foundBoardId && boards.length > 0) {
+                foundBoardId = boards[0].id; // Fallback to first board
+            }
+
+            if (foundBoardId) {
+                setBoardId(foundBoardId);
+                const sprints = await jiraApi.getSprintsForBoard(foundBoardId);
+                setAvailableSprints(sprints || []);
+            } else {
+                Alert.alert('Error', 'No board found for this issue');
+                setShowSprintPicker(false);
+            }
+        } catch (error) {
+            console.error('Error loading sprints:', error);
+            Alert.alert('Error', 'Failed to load sprints');
+            setShowSprintPicker(false);
+        } finally {
+            setLoadingSprints(false);
+        }
+    };
+
+    const handleUpdateSprint = async (sprintId: number | null, sprintName: string) => {
+        try {
+            setUpdatingSprint(true);
+            await jiraApi.moveIssueToSprint(issueKey, sprintId);
+            await loadIssueDetails(); // Reload to get updated sprint
+            setShowSprintPicker(false);
+            Alert.alert('Success', sprintId ? `Moved to ${sprintName}` : 'Moved to backlog');
+        } catch (error: any) {
+            console.error('Error updating sprint:', error);
+            Alert.alert('Error', error?.response?.data?.errorMessages?.[0] || 'Failed to update sprint');
+        } finally {
+            setUpdatingSprint(false);
         }
     };
 
@@ -1174,11 +1245,33 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                         <Text style={styles.backIcon}>←</Text>
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>Issue Details</Text>
-                    <View style={styles.placeholder} />
+                    <View style={styles.backButton} />
                 </LinearGradient>
-                <View style={styles.centerContainer}>
-                    <ActivityIndicator size="large" color="#0052CC" />
-                </View>
+                <ScrollView style={styles.content}>
+                    <View style={{ paddingVertical: 16 }}>
+                        <SkeletonLoader width={120} height={24} style={{ marginBottom: 8 }} />
+                        <SkeletonLoader width="90%" height={28} style={{ marginBottom: 16 }} />
+                    </View>
+                    <View style={{ marginBottom: 24 }}>
+                        <SkeletonLoader width={100} height={18} style={{ marginBottom: 12 }} />
+                        <SkeletonText lines={4} lineHeight={16} spacing={8} lastLineWidth="80%" />
+                    </View>
+                    <View style={{ marginBottom: 24 }}>
+                        <SkeletonLoader width={120} height={18} style={{ marginBottom: 12 }} />
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <SkeletonLoader width={80} height={16} />
+                            <SkeletonLoader width={100} height={24} borderRadius={12} />
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <SkeletonLoader width={80} height={16} />
+                            <SkeletonLoader width={80} height={24} borderRadius={12} />
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                            <SkeletonLoader width={80} height={16} />
+                            <SkeletonLoader width={120} height={24} />
+                        </View>
+                    </View>
+                </ScrollView>
             </View>
         );
     }
@@ -1215,7 +1308,10 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                     {/* Issue Key and Status */}
                     <View style={styles.card}>
                         <View style={styles.keyStatusRow}>
-                            <Text style={styles.issueKey}>{issue.key}</Text>
+                            <View style={styles.keyContainer}>
+                                <Text style={styles.issueKeyLabel}>Issue</Text>
+                                <Text style={styles.issueKey}>{issue.key}</Text>
+                            </View>
                             <TouchableOpacity
                                 style={[styles.statusBadge, { backgroundColor: statusColor }]}
                                 onPress={handleStatusPress}
@@ -1224,37 +1320,37 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                 <Text style={styles.statusText}>{issue.fields.status.name}</Text>
                             </TouchableOpacity>
                         </View>
-                    </View>
-
-                    {/* Summary */}
-                    <View style={styles.card}>
-                        <View style={styles.cardHeader}>
-                            <Text style={styles.sectionTitle}>Summary</Text>
-                            <TouchableOpacity onPress={handleSummaryEdit} style={styles.editButton}>
-                                <Text style={styles.editButtonText}>✏️ Edit</Text>
-                            </TouchableOpacity>
-                        </View>
+                        <View style={styles.divider} />
                         <Text style={styles.summary}>{issue.fields.summary}</Text>
                     </View>
 
                     {/* Description */}
                     <View style={styles.card}>
                         <View style={styles.cardHeader}>
-                            <Text style={styles.sectionTitle}>Description</Text>
+                            <View style={styles.headerTitleRow}>
+                                <Text style={styles.sectionIcon}>📝</Text>
+                                <Text style={styles.sectionTitle}>Description</Text>
+                            </View>
                             <TouchableOpacity onPress={handleDescriptionEdit} style={styles.editButton}>
-                                <Text style={styles.editButtonText}>✏️ Edit</Text>
+                                <Text style={styles.editButtonText}>Edit</Text>
                             </TouchableOpacity>
                         </View>
                         {issue.fields.description ? (
-                            <View>
+                            <View style={styles.descriptionContent}>
                                 {renderDescriptionText(issue.fields.description)}
 
                                 {/* Inline Attachments */}
                                 {issue.fields.attachment && issue.fields.attachment.length > 0 && (
                                     <View style={styles.inlineAttachmentsSection}>
-                                        <Text style={styles.inlineAttachmentsTitle}>
-                                            📎 Attachments ({issue.fields.attachment.length})
-                                        </Text>
+                                        <View style={styles.attachmentsTitleRow}>
+                                            <Text style={styles.attachmentIcon}>📎</Text>
+                                            <Text style={styles.inlineAttachmentsTitle}>
+                                                Attachments
+                                            </Text>
+                                            <View style={styles.attachmentCountBadge}>
+                                                <Text style={styles.attachmentCountText}>{issue.fields.attachment.length}</Text>
+                                            </View>
+                                        </View>
                                         <View style={styles.inlineAttachmentsGrid}>
                                             {issue.fields.attachment.map((attachment: any) => (
                                                 <TouchableOpacity
@@ -1303,24 +1399,34 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
 
                     {/* Details */}
                     <View style={styles.card}>
-                        <Text style={styles.sectionTitle}>Details</Text>
+                        <View style={styles.headerTitleRow}>
+                            <Text style={styles.sectionIcon}>📋</Text>
+                            <Text style={styles.sectionTitle}>Details</Text>
+                        </View>
 
                         <View style={styles.detailRow}>
-                            <Text style={styles.detailLabel}>Type:</Text>
+                            <View style={styles.detailIconLabel}>
+                                <Text style={styles.detailIcon}>🏷️</Text>
+                                <Text style={styles.detailLabel}>Type</Text>
+                            </View>
                             <TouchableOpacity
-                                style={styles.assigneeClickable}
+                                style={styles.detailValueContainer}
                                 onPress={handleTypePress}
                                 activeOpacity={0.7}
                             >
                                 <Text style={styles.detailValue}>{issue.fields.issuetype.name}</Text>
+                                <Text style={styles.chevron}>›</Text>
                             </TouchableOpacity>
                         </View>
 
                         {issue.fields.priority && (
                             <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Priority:</Text>
+                                <View style={styles.detailIconLabel}>
+                                    <Text style={styles.detailIcon}>⚡</Text>
+                                    <Text style={styles.detailLabel}>Priority</Text>
+                                </View>
                                 <TouchableOpacity
-                                    style={styles.assigneeClickable}
+                                    style={styles.detailValueContainer}
                                     onPress={handlePriorityPress}
                                     activeOpacity={0.7}
                                 >
@@ -1330,15 +1436,19 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                         </Text>
                                         <Text style={styles.detailValue}>{issue.fields.priority.name}</Text>
                                     </View>
+                                    <Text style={styles.chevron}>›</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
 
                         <View style={styles.detailRow}>
-                            <Text style={styles.detailLabel}>Assignee:</Text>
+                            <View style={styles.detailIconLabel}>
+                                <Text style={styles.detailIcon}>👤</Text>
+                                <Text style={styles.detailLabel}>Assignee</Text>
+                            </View>
                             {issue.fields.assignee ? (
                                 <TouchableOpacity
-                                    style={styles.assigneeClickable}
+                                    style={styles.detailValueContainer}
                                     onPress={handleAssigneePress}
                                     activeOpacity={0.7}
                                 >
@@ -1359,63 +1469,122 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                                             {issue.fields.assignee.displayName}
                                         </Text>
                                     </View>
+                                    <Text style={styles.chevron}>›</Text>
                                 </TouchableOpacity>
                             ) : (
                                 <TouchableOpacity
-                                    style={styles.assigneeClickable}
+                                    style={styles.detailValueContainer}
                                     onPress={handleAssigneePress}
                                     activeOpacity={0.7}
                                 >
                                     <Text style={[styles.detailValue, styles.unassignedText]}>Unassigned</Text>
+                                    <Text style={styles.chevron}>›</Text>
                                 </TouchableOpacity>
                             )}
                         </View>
 
+                        <View style={styles.sectionDivider} />
+
                         <View style={styles.detailRow}>
-                            <Text style={styles.detailLabel}>Created:</Text>
-                            <Text style={styles.detailValue}>{formatDate(issue.fields.created)}</Text>
+                            <View style={styles.detailIconLabel}>
+                                <Text style={styles.detailIcon}>📅</Text>
+                                <Text style={styles.detailLabel}>Created</Text>
+                            </View>
+                            <Text style={styles.detailValueStatic}>{formatDate(issue.fields.created)}</Text>
                         </View>
 
                         <View style={styles.detailRow}>
-                            <Text style={styles.detailLabel}>Updated:</Text>
-                            <Text style={styles.detailValue}>{formatDate(issue.fields.updated)}</Text>
+                            <View style={styles.detailIconLabel}>
+                                <Text style={styles.detailIcon}>🔄</Text>
+                                <Text style={styles.detailLabel}>Updated</Text>
+                            </View>
+                            <Text style={styles.detailValueStatic}>{formatDate(issue.fields.updated)}</Text>
                         </View>
 
                         {issue.fields.duedate !== undefined && (
                             <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Due Date:</Text>
+                                <View style={styles.detailIconLabel}>
+                                    <Text style={styles.detailIcon}>⏰</Text>
+                                    <Text style={styles.detailLabel}>Due Date</Text>
+                                </View>
                                 <TouchableOpacity
-                                    style={styles.assigneeClickable}
+                                    style={styles.detailValueContainer}
                                     onPress={handleDueDatePress}
                                     activeOpacity={0.7}
                                 >
                                     <Text style={[styles.detailValue, !issue.fields.duedate && styles.unassignedText]}>
                                         {issue.fields.duedate ? formatDateOnly(issue.fields.duedate) : 'Not set'}
                                     </Text>
+                                    <Text style={styles.chevron}>›</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
 
                         {issue.fields.customfield_10016 !== undefined && (
                             <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Story Points:</Text>
+                                <View style={styles.detailIconLabel}>
+                                    <Text style={styles.detailIcon}>🎯</Text>
+                                    <Text style={styles.detailLabel}>Story Points</Text>
+                                </View>
                                 <TouchableOpacity
-                                    style={styles.assigneeClickable}
+                                    style={styles.detailValueContainer}
                                     onPress={handleStoryPointsPress}
                                     activeOpacity={0.7}
                                 >
                                     <Text style={[styles.detailValue, !issue.fields.customfield_10016 && styles.unassignedText]}>
                                         {issue.fields.customfield_10016 || 'Not set'}
                                     </Text>
+                                    <Text style={styles.chevron}>›</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
+
+                        {/* Sprint field */}
+                        <View style={styles.detailRow}>
+                            <View style={styles.detailIconLabel}>
+                                <Text style={styles.detailIcon}>🏃</Text>
+                                <Text style={styles.detailLabel}>Sprint</Text>
+                            </View>
+                            <TouchableOpacity
+                                style={styles.detailValueContainer}
+                                onPress={handleSprintPress}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[styles.detailValue, !issue.fields.customfield_10020 && styles.unassignedText]}>
+                                    {(() => {
+                                        const sprint = issue.fields.customfield_10020;
+                                        if (!sprint || sprint === null) return '';
+                                        if (Array.isArray(sprint)) {
+                                            if (sprint.length === 0) return '';
+                                            // Get the last sprint (most recent)
+                                            const latestSprint = sprint[sprint.length - 1];
+                                            if (latestSprint && latestSprint.name) {
+                                                return latestSprint.name;
+                                            }
+                                            return '';
+                                        }
+                                        if (typeof sprint === 'object' && sprint.name) {
+                                            return sprint.name;
+                                        }
+                                        return '';
+                                    })()}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
 
                     {/* Linked Issues and Pages */}
                     {(issueLinks.length > 0 || remoteLinks.length > 0) && (
                         <View style={styles.card}>
-                            <Text style={styles.sectionTitle}>Links</Text>
+                            <View style={styles.linksSectionHeader}>
+                                <View style={styles.headerTitleRow}>
+                                    <Text style={styles.sectionIcon}>🔗</Text>
+                                    <Text style={styles.sectionTitle}>Links</Text>
+                                </View>
+                                <View style={styles.linksCountBadge}>
+                                    <Text style={styles.linksCountText}>{issueLinks.length + remoteLinks.length}</Text>
+                                </View>
+                            </View>
 
                             {/* Issue Links */}
                             {issueLinks.map((link: any, index: number) => {
@@ -1483,7 +1652,8 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
 
                     {/* Comments */}
                     <View style={styles.card}>
-                        <View style={styles.commentHeader}>
+                        <View style={styles.headerTitleRow}>
+                            <Text style={styles.sectionIcon}>💬</Text>
                             <Text style={styles.sectionTitle}>Comments</Text>
                             <Text style={styles.commentCount}>({comments.length})</Text>
                         </View>
@@ -1978,6 +2148,99 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                 </View>
             </Modal>
 
+            {/* Sprint Picker Modal */}
+            <Modal
+                visible={showSprintPicker}
+                transparent={true}
+                animationType="slide"
+                onRequestClose={() => setShowSprintPicker(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.statusModalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Change Sprint</Text>
+                            <TouchableOpacity
+                                onPress={() => setShowSprintPicker(false)}
+                                style={styles.modalCloseButton}
+                            >
+                                <Text style={styles.modalCloseText}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.currentStatusContainer}>
+                            <Text style={styles.currentStatusLabel}>Current Sprint:</Text>
+                            <Text style={styles.currentFieldValue}>
+                                {(() => {
+                                    const sprint = issue.fields.customfield_10020;
+                                    if (!sprint || sprint === null) return 'None';
+                                    if (Array.isArray(sprint)) {
+                                        if (sprint.length === 0) return 'None';
+                                        // Get the last sprint (most recent)
+                                        const latestSprint = sprint[sprint.length - 1];
+                                        if (latestSprint && latestSprint.name) {
+                                            return latestSprint.name;
+                                        }
+                                        return 'None';
+                                    }
+                                    if (typeof sprint === 'object' && sprint.name) {
+                                        return sprint.name;
+                                    }
+                                    return 'None';
+                                })()}
+                            </Text>
+                        </View>
+
+                        {loadingSprints ? (
+                            <View style={styles.statusLoadingContainer}>
+                                <ActivityIndicator size="large" color="#0052CC" />
+                            </View>
+                        ) : (
+                            <ScrollView style={styles.statusList}>
+                                {/* Active sprints first */}
+                                {availableSprints
+                                    .filter((sprint) => sprint.state === 'active')
+                                    .map((sprint) => (
+                                        <TouchableOpacity
+                                            key={sprint.id}
+                                            style={styles.statusItem}
+                                            onPress={() => handleUpdateSprint(sprint.id, sprint.name)}
+                                            disabled={updatingSprint}
+                                        >
+                                            <View style={styles.statusItemContent}>
+                                                <Text style={styles.statusName}>🏃 {sprint.name}</Text>
+                                                <Text style={styles.sprintState}>Active</Text>
+                                            </View>
+                                            {updatingSprint && (
+                                                <ActivityIndicator size="small" color="#0052CC" />
+                                            )}
+                                        </TouchableOpacity>
+                                    ))}
+
+                                {/* Future sprints */}
+                                {availableSprints
+                                    .filter((sprint) => sprint.state === 'future')
+                                    .map((sprint) => (
+                                        <TouchableOpacity
+                                            key={sprint.id}
+                                            style={styles.statusItem}
+                                            onPress={() => handleUpdateSprint(sprint.id, sprint.name)}
+                                            disabled={updatingSprint}
+                                        >
+                                            <View style={styles.statusItemContent}>
+                                                <Text style={styles.statusName}>📅 {sprint.name}</Text>
+                                                <Text style={styles.sprintState}>Future</Text>
+                                            </View>
+                                            {updatingSprint && (
+                                                <ActivityIndicator size="small" color="#0052CC" />
+                                            )}
+                                        </TouchableOpacity>
+                                    ))}
+                            </ScrollView>
+                        )}
+                    </View>
+                </View>
+            </Modal>
+
             {/* Status Picker Modal */}
             <Modal
                 visible={showStatusPicker}
@@ -2189,65 +2452,133 @@ const styles = StyleSheet.create({
     },
     card: {
         backgroundColor: '#fff',
-        marginHorizontal: 15,
-        marginTop: 15,
+        marginHorizontal: 16,
+        marginTop: 16,
         padding: 20,
-        borderRadius: 12,
+        borderRadius: 14,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 2,
+        borderWidth: 1,
+        borderColor: '#E1E4E8',
+    },
+    headerTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    sectionIcon: {
+        fontSize: 18,
+        marginRight: 8,
+    },
+    cardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 14,
+    },
+    descriptionContent: {
+        paddingTop: 2,
+    },
+    editButton: {
+        paddingHorizontal: 14,
+        paddingVertical: 7,
+        backgroundColor: '#F4F5F7',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+    },
+    editButtonText: {
+        color: '#0052CC',
+        fontSize: 14,
+        fontWeight: '600',
     },
     keyStatusRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
+        marginBottom: 16,
+    },
+    keyContainer: {
+        flexDirection: 'column',
+    },
+    issueKeyLabel: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#5E6C84',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        marginBottom: 4,
     },
     issueKey: {
-        fontSize: 20,
+        fontSize: 24,
         fontWeight: '700',
         color: '#0052CC',
+        letterSpacing: 0.3,
+    },
+    divider: {
+        height: 1,
+        backgroundColor: '#E1E4E8',
+        marginVertical: 18,
+    },
+    sectionDivider: {
+        height: 1,
+        backgroundColor: '#F0F0F0',
+        marginVertical: 12,
     },
     statusBadge: {
         paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: 14,
+        paddingHorizontal: 14,
+        borderRadius: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.15,
+        shadowRadius: 2,
+        elevation: 1,
     },
     statusText: {
-        fontSize: 12,
+        fontSize: 11,
         color: '#fff',
-        fontWeight: '600',
+        fontWeight: '700',
         textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
     sectionTitle: {
-        fontSize: 16,
+        fontSize: 17,
         fontWeight: '700',
         color: '#172B4D',
-        marginBottom: 12,
+        letterSpacing: 0.2,
     },
     summary: {
-        fontSize: 18,
+        fontSize: 20,
         color: '#172B4D',
-        fontWeight: '500',
-        lineHeight: 26,
+        fontWeight: '600',
+        lineHeight: 30,
+        letterSpacing: 0.1,
     },
     description: {
         fontSize: 15,
-        color: '#5E6C84',
-        lineHeight: 22,
+        color: '#42526E',
+        lineHeight: 24,
     },
     descriptionParagraph: {
         fontSize: 15,
-        color: '#5E6C84',
-        lineHeight: 22,
-        marginBottom: 12,
+        color: '#42526E',
+        lineHeight: 24,
+        marginBottom: 14,
     },
     descriptionImageContainer: {
-        marginVertical: 12,
-        borderRadius: 8,
+        marginVertical: 14,
+        borderRadius: 10,
         overflow: 'hidden',
         backgroundColor: '#F4F5F7',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+        elevation: 2,
     },
     descriptionImage: {
         width: '100%',
@@ -2266,33 +2597,70 @@ const styles = StyleSheet.create({
         color: '#5E6C84',
     },
     mediaGroupContainer: {
-        marginVertical: 12,
+        marginVertical: 14,
     },
     detailRow: {
         flexDirection: 'row',
         marginBottom: 14,
         alignItems: 'center',
-        minHeight: 24,
+        justifyContent: 'space-between',
+        minHeight: 32,
+    },
+    detailIconLabel: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 0.4,
+    },
+    detailIcon: {
+        fontSize: 16,
+        marginRight: 8,
     },
     detailLabel: {
         fontSize: 14,
         fontWeight: '600',
         color: '#5E6C84',
-        width: 90,
+        letterSpacing: 0.2,
+    },
+    detailValueContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 0.6,
+        justifyContent: 'flex-end',
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        marginRight: -10,
+        borderRadius: 8,
+        backgroundColor: 'rgba(0, 82, 204, 0.02)',
     },
     detailValue: {
-        fontSize: 14,
+        fontSize: 15,
         color: '#172B4D',
+        fontWeight: '500',
+        textAlign: 'right',
         flex: 1,
+    },
+    detailValueStatic: {
+        fontSize: 14,
+        color: '#5E6C84',
+        fontWeight: '500',
+        textAlign: 'right',
+        flex: 0.6,
+    },
+    chevron: {
+        fontSize: 20,
+        color: '#8993A4',
+        marginLeft: 8,
+        fontWeight: '300',
     },
     unassignedText: {
         fontStyle: 'italic',
-        color: '#5E6C84',
+        color: '#8993A4',
+        fontWeight: '400',
     },
     priorityRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        flex: 1,
+        gap: 6,
     },
     priorityEmoji: {
         fontSize: 16,
@@ -2301,14 +2669,15 @@ const styles = StyleSheet.create({
     assigneeRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        flex: 1,
+        gap: 8,
     },
     assigneeClickable: {
         flex: 1,
-        paddingVertical: 2,
-        paddingHorizontal: 4,
-        marginLeft: -4,
-        borderRadius: 4,
+        paddingVertical: 4,
+        paddingHorizontal: 6,
+        marginLeft: -6,
+        borderRadius: 6,
+        backgroundColor: 'rgba(0, 82, 204, 0.03)',
     },
     changeIndicator: {
         fontSize: 16,
@@ -2317,22 +2686,23 @@ const styles = StyleSheet.create({
     },
     assigneeModalContent: {
         backgroundColor: 'white',
-        borderRadius: 12,
-        padding: 16,
-        width: '80%',
-        maxHeight: '70%',
+        borderRadius: 16,
+        padding: 20,
+        width: '85%',
+        maxHeight: '75%',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        elevation: 5,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+        elevation: 8,
     },
     assigneeModalTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 16,
+        fontSize: 20,
+        fontWeight: '700',
+        marginBottom: 18,
         textAlign: 'center',
         color: '#172B4D',
+        letterSpacing: 0.2,
     },
     assigneeList: {
         maxHeight: 400,
@@ -2394,42 +2764,168 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#DFE1E6',
     },
-    linkItem: {
+    linksSectionHeader: {
         flexDirection: 'row',
-        padding: 12,
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    linksCountBadge: {
+        backgroundColor: '#DFE1E6',
+        paddingHorizontal: 9,
+        paddingVertical: 4,
+        borderRadius: 12,
+        minWidth: 26,
+        alignItems: 'center',
+    },
+    linksCountText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#5E6C84',
+    },
+    inlineAttachmentsSection: {
+        marginTop: 20,
+        paddingTop: 20,
+        borderTopWidth: 1,
+        borderTopColor: '#F0F0F0',
+    },
+    attachmentsTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 14,
+    },
+    attachmentIcon: {
+        fontSize: 16,
+        marginRight: 8,
+    },
+    inlineAttachmentsTitle: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#172B4D',
+        letterSpacing: 0.2,
+        flex: 1,
+    },
+    attachmentCountBadge: {
+        backgroundColor: '#DFE1E6',
+        paddingHorizontal: 9,
+        paddingVertical: 4,
+        borderRadius: 12,
+        minWidth: 26,
+        alignItems: 'center',
+    },
+    attachmentCountText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#5E6C84',
+    },
+    inlineAttachmentsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+    },
+    inlineAttachmentItem: {
+        width: 100,
         backgroundColor: '#F4F5F7',
         borderRadius: 8,
-        marginBottom: 8,
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+        padding: 8,
+        alignItems: 'center',
+    },
+    inlineAttachmentImage: {
+        width: 84,
+        height: 84,
+        borderRadius: 6,
+        marginBottom: 6,
+        resizeMode: 'cover',
+    },
+    inlineAttachmentPlaceholder: {
+        width: 84,
+        height: 84,
+        borderRadius: 6,
+        marginBottom: 6,
+        backgroundColor: '#F4F5F7',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    inlineAttachmentFile: {
+        width: 84,
+        height: 84,
+        borderRadius: 6,
+        marginBottom: 6,
+        backgroundColor: '#FFF',
+        justifyContent: 'center',
+        alignItems: 'center',
         borderWidth: 1,
         borderColor: '#DFE1E6',
     },
+    inlineAttachmentIcon: {
+        fontSize: 40,
+    },
+    inlineAttachmentName: {
+        fontSize: 11,
+        color: '#172B4D',
+        textAlign: 'center',
+        marginBottom: 4,
+        width: '100%',
+    },
+    inlineAttachmentSize: {
+        fontSize: 10,
+        color: '#5E6C84',
+        textAlign: 'center',
+    },
+    emptyDescription: {
+        color: '#8993A4',
+        fontStyle: 'italic',
+        fontSize: 15,
+        paddingVertical: 12,
+        textAlign: 'center',
+    },
+    linkItem: {
+        flexDirection: 'row',
+        padding: 14,
+        backgroundColor: '#FAFBFC',
+        borderRadius: 10,
+        marginBottom: 10,
+        borderWidth: 1,
+        borderColor: '#E1E4E8',
+    },
     linkIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         backgroundColor: '#FFFFFF',
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 12,
+        marginRight: 14,
+        borderWidth: 1,
+        borderColor: '#E1E4E8',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 2,
     },
     linkIconText: {
-        fontSize: 20,
+        fontSize: 22,
     },
     linkContent: {
         flex: 1,
+        justifyContent: 'center',
     },
     linkType: {
-        fontSize: 12,
-        color: '#5E6C84',
-        fontWeight: '600',
+        fontSize: 11,
+        color: '#0052CC',
+        fontWeight: '700',
         marginBottom: 4,
         textTransform: 'uppercase',
+        letterSpacing: 0.6,
     },
     linkTitle: {
         fontSize: 15,
         color: '#172B4D',
         fontWeight: '600',
-        marginBottom: 4,
+        marginBottom: 3,
+        lineHeight: 20,
     },
     linkStatus: {
         fontSize: 13,
@@ -2518,6 +3014,12 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#172B4D',
     },
+    sprintState: {
+        fontSize: 12,
+        color: '#5E6C84',
+        marginLeft: 8,
+        fontWeight: '500',
+    },
     statusDescription: {
         fontSize: 13,
         color: '#5E6C84',
@@ -2603,15 +3105,21 @@ const styles = StyleSheet.create({
     },
     updateButton: {
         backgroundColor: '#0052CC',
-        paddingVertical: 14,
-        borderRadius: 8,
+        paddingVertical: 16,
+        borderRadius: 10,
         alignItems: 'center',
-        marginTop: 8,
+        marginTop: 10,
+        shadowColor: '#0052CC',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 3,
     },
     updateButtonText: {
         color: '#fff',
         fontSize: 16,
-        fontWeight: '600',
+        fontWeight: '700',
+        letterSpacing: 0.5,
     },
     avatar: {
         width: 28,
@@ -2632,11 +3140,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
     },
-    commentCount: {
-        fontSize: 14,
-        color: '#5E6C84',
-        marginLeft: 6,
-    },
     replyButton: {
         paddingHorizontal: 10,
         paddingVertical: 5,
@@ -2656,26 +3159,37 @@ const styles = StyleSheet.create({
         marginVertical: 20,
     },
     commentItem: {
-        paddingVertical: 15,
+        paddingVertical: 18,
         borderTopWidth: 1,
-        borderTopColor: '#E8EBED',
+        borderTopColor: '#E1E4E8',
     },
     commentHeader: {
-        marginBottom: 12,
+        marginBottom: 14,
+    },
+    commentCount: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#8993A4',
+        marginLeft: 6,
     },
     commentAuthorRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 8,
+        marginBottom: 10,
     },
     commentAvatar: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         backgroundColor: '#4C9AFF',
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 10,
+        marginRight: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 1,
     },
     commentAvatarImage: {
         width: 32,
@@ -2878,7 +3392,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginRight: 12,
     },
-    attachmentIcon: {
+    editModalAttachmentIconLarge: {
         fontSize: 24,
     },
     attachmentInfo: {
@@ -2991,94 +3505,6 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 14,
         fontWeight: '600',
-    },
-    cardHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    editButton: {
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-    },
-    editButtonText: {
-        fontSize: 13,
-        color: '#0052CC',
-        fontWeight: '600',
-    },
-    emptyDescription: {
-        fontSize: 15,
-        color: '#5E6C84',
-        fontStyle: 'italic',
-    },
-    inlineAttachmentsSection: {
-        marginTop: 20,
-        paddingTop: 15,
-        borderTopWidth: 1,
-        borderTopColor: '#E8EBED',
-    },
-    inlineAttachmentsTitle: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#172B4D',
-        marginBottom: 12,
-    },
-    inlineAttachmentsGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 10,
-    },
-    inlineAttachmentItem: {
-        width: 100,
-        backgroundColor: '#F4F5F7',
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#DFE1E6',
-        padding: 8,
-        alignItems: 'center',
-    },
-    inlineAttachmentImage: {
-        width: 84,
-        height: 84,
-        borderRadius: 6,
-        marginBottom: 6,
-        resizeMode: 'cover',
-    },
-    inlineAttachmentPlaceholder: {
-        width: 84,
-        height: 84,
-        borderRadius: 6,
-        marginBottom: 6,
-        backgroundColor: '#F4F5F7',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    inlineAttachmentFile: {
-        width: 84,
-        height: 84,
-        borderRadius: 6,
-        marginBottom: 6,
-        backgroundColor: '#FFF',
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#DFE1E6',
-    },
-    inlineAttachmentIcon: {
-        fontSize: 40,
-    },
-    inlineAttachmentName: {
-        fontSize: 11,
-        color: '#172B4D',
-        textAlign: 'center',
-        marginBottom: 4,
-        width: '100%',
-    },
-    inlineAttachmentSize: {
-        fontSize: 10,
-        color: '#5E6C84',
-        textAlign: 'center',
     },
     commentActions: {
         flexDirection: 'row',

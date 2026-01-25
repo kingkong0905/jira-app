@@ -18,6 +18,7 @@ import { StatusBar } from 'expo-status-bar';
 import { StorageService } from '../services/storage';
 import { jiraApi } from '../services/jiraApi';
 import { JiraBoard } from '../types/jira';
+import { SkeletonLoader } from './shared/SkeletonLoader';
 
 interface SettingsScreenProps {
     onBack: () => void;
@@ -290,8 +291,32 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
 
     if (loading) {
         return (
-            <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#0052CC" />
+            <View style={styles.container}>
+                <StatusBar style="light" />
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={onBack} style={styles.backButton}>
+                        <Text style={styles.backIcon}>←</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>Settings</Text>
+                    <View style={styles.backButton} />
+                </View>
+                <ScrollView style={styles.content}>
+                    <View style={{ marginBottom: 24 }}>
+                        <SkeletonLoader width={150} height={20} style={{ marginBottom: 16 }} />
+                        <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 8, marginBottom: 12 }}>
+                            <SkeletonLoader width={80} height={14} style={{ marginBottom: 8 }} />
+                            <SkeletonLoader width="100%" height={16} />
+                        </View>
+                        <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 8, marginBottom: 12 }}>
+                            <SkeletonLoader width={100} height={14} style={{ marginBottom: 8 }} />
+                            <SkeletonLoader width="100%" height={16} />
+                        </View>
+                        <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 8, marginBottom: 12 }}>
+                            <SkeletonLoader width={120} height={14} style={{ marginBottom: 8 }} />
+                            <SkeletonLoader width="100%" height={16} />
+                        </View>
+                    </View>
+                </ScrollView>
             </View>
         );
     }

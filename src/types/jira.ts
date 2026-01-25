@@ -37,6 +37,7 @@ export interface JiraIssue {
         updated: string;
         duedate?: string;
         customfield_10016?: number; // Story Points (common custom field ID)
+        customfield_10020?: any; // Sprint field (can be array or object)
         sprint?: {
             id: number;
             name: string;

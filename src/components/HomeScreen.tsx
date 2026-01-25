@@ -21,6 +21,8 @@ import IssueCard from './IssueCard';
 import Logo from './Logo';
 import IssueDetailsScreen from './IssueDetailsScreen';
 import CreateIssueScreen from './CreateIssueScreen';
+import { SkeletonList, SkeletonLoader } from './shared/SkeletonLoader';
+import { FadeInView } from './shared/FadeInView';
 
 interface HomeScreenProps {
     onOpenSettings: () => void;
@@ -551,9 +553,26 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
 
     if (loading && !refreshing) {
         return (
-            <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#0052CC" />
-                <Text style={styles.loadingText}>Loading...</Text>
+            <View style={styles.container}>
+                <StatusBar style="light" />
+                <LinearGradient
+                    colors={['#0052CC', '#4C9AFF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.header}
+                >
+                    <View style={styles.settingsButton} />
+                    <Text style={styles.headerTitle}>Jira Board</Text>
+                    <View style={styles.settingsButton} />
+                </LinearGradient>
+                <View style={{ flex: 1, paddingHorizontal: 16 }}>
+                    <View style={{ marginBottom: 16, paddingTop: 16 }}>
+                        <SkeletonLoader width="100%" height={48} borderRadius={8} />
+                    </View>
+                    <ScrollView>
+                        <SkeletonList count={4} />
+                    </ScrollView>
+                </View>
             </View>
         );
     }
@@ -989,8 +1008,13 @@ const styles = StyleSheet.create({
     header: {
         backgroundColor: '#0052CC',
         paddingTop: 50,
-        paddingBottom: 15,
+        paddingBottom: 20,
         paddingHorizontal: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 4,
     },
     headerContent: {
         flexDirection: 'row',
@@ -1000,17 +1024,20 @@ const styles = StyleSheet.create({
     headerLeft: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
+        gap: 14,
+        flex: 1,
     },
     headerTitle: {
-        fontSize: 24,
-        fontWeight: 'bold',
+        fontSize: 22,
+        fontWeight: '700',
         color: '#fff',
+        letterSpacing: 0.3,
     },
     headerSubtitle: {
-        fontSize: 13,
+        fontSize: 12,
         color: '#B3D4FF',
-        marginTop: 2,
+        marginTop: 1,
+        fontWeight: '500',
     },
     settingsButton: {
         padding: 5,
@@ -1051,29 +1078,35 @@ const styles = StyleSheet.create({
     },
     boardSelector: {
         backgroundColor: '#fff',
-        paddingVertical: 15,
+        paddingVertical: 16,
         paddingHorizontal: 20,
         borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
+        borderBottomColor: '#F0F0F0',
     },
     boardHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-        marginBottom: 10,
+        gap: 10,
     },
     boardLabel: {
-        fontSize: 16,
+        fontSize: 13,
         fontWeight: '600',
-        color: '#172B4D',
+        color: '#6B778C',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
     boardDropdownButton: {
         flex: 1,
-        backgroundColor: '#F4F5F7',
-        borderWidth: 2,
-        borderColor: '#DFE1E6',
-        borderRadius: 8,
-        padding: 12,
+        backgroundColor: '#FAFBFC',
+        borderWidth: 1,
+        borderColor: '#E1E4E8',
+        borderRadius: 10,
+        padding: 14,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
     },
     boardDropdownContent: {
         flexDirection: 'row',
@@ -1192,13 +1225,18 @@ const styles = StyleSheet.create({
     searchContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#F4F5F7',
+        backgroundColor: '#fff',
         borderRadius: 12,
         marginHorizontal: 20,
         marginVertical: 12,
-        paddingHorizontal: 12,
-        borderWidth: 1,
-        borderColor: '#DFE1E6',
+        paddingHorizontal: 14,
+        borderWidth: 1.5,
+        borderColor: '#E1E4E8',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 3,
+        elevation: 1,
     },
     searchIcon: {
         fontSize: 18,
@@ -1231,22 +1269,29 @@ const styles = StyleSheet.create({
         fontStyle: 'italic',
     },
     sectionTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#333',
+        fontSize: 17,
+        fontWeight: '700',
+        color: '#172B4D',
+        letterSpacing: 0.3,
     },
     issuesContainer: {
         flex: 1,
         paddingTop: 0,
     },
     sprintInfoCard: {
-        backgroundColor: '#EAF3FF',
+        backgroundColor: '#F0F7FF',
         marginHorizontal: 20,
-        marginVertical: 12,
-        padding: 16,
-        borderRadius: 12,
+        marginTop: 16,
+        marginBottom: 8,
+        padding: 18,
+        borderRadius: 14,
         borderLeftWidth: 4,
         borderLeftColor: '#0052CC',
+        shadowColor: '#0052CC',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
     },
     sprintInfoHeader: {
         flexDirection: 'row',
@@ -1293,42 +1338,54 @@ const styles = StyleSheet.create({
     tabContainer: {
         flexDirection: 'row',
         backgroundColor: '#fff',
-        borderBottomWidth: 2,
-        borderBottomColor: '#e0e0e0',
+        paddingHorizontal: 20,
+        paddingTop: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
     },
     tab: {
         flex: 1,
-        paddingVertical: 14,
+        paddingVertical: 12,
         alignItems: 'center',
-        borderBottomWidth: 3,
+        borderBottomWidth: 2,
         borderBottomColor: 'transparent',
+        marginBottom: -1,
     },
     tabActive: {
         borderBottomColor: '#0052CC',
     },
     tabText: {
-        fontSize: 15,
+        fontSize: 14,
         fontWeight: '600',
-        color: '#5E6C84',
+        color: '#6B778C',
+        letterSpacing: 0.2,
     },
     tabTextActive: {
         color: '#0052CC',
+        fontWeight: '700',
     },
     issuesHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
         paddingHorizontal: 20,
-        paddingVertical: 12,
-        backgroundColor: '#F4F5F7',
+        paddingVertical: 16,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
     },
     filterContainer: {
-        backgroundColor: '#fff',
-        paddingVertical: 12,
+        backgroundColor: '#FAFBFC',
+        paddingVertical: 14,
         paddingHorizontal: 20,
         borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
+        borderBottomColor: '#F0F0F0',
     },
     filterLabel: {
-        fontSize: 14,
-        fontWeight: '600',
+        fontSize: 12,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
         color: '#5E6C84',
         marginBottom: 8,
     },
@@ -1336,51 +1393,73 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     filterChip: {
-        backgroundColor: '#F4F5F7',
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: 16,
-        marginRight: 8,
-        borderWidth: 1,
-        borderColor: '#DFE1E6',
+        paddingHorizontal: 18,
+        paddingVertical: 9,
+        borderRadius: 22,
+        backgroundColor: '#fff',
+        borderWidth: 1.5,
+        borderColor: '#E1E4E8',
+        marginRight: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
     },
     filterChipSelected: {
         backgroundColor: '#0052CC',
         borderColor: '#0052CC',
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+        elevation: 2,
     },
     filterChipText: {
         fontSize: 13,
-        color: '#172B4D',
-        fontWeight: '500',
+        fontWeight: '600',
+        color: '#42526E',
+        letterSpacing: 0.2,
     },
     filterChipTextSelected: {
         color: '#fff',
-        fontWeight: '600',
+        fontWeight: '700',
     },
     statusGroup: {
-        marginBottom: 16,
+        marginBottom: 20,
         paddingHorizontal: 20,
     },
     statusGroupHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        backgroundColor: '#F4F5F7',
-        borderRadius: 8,
-        marginBottom: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        backgroundColor: '#fff',
+        borderRadius: 10,
+        marginBottom: 10,
         borderLeftWidth: 4,
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 2,
+        elevation: 1,
     },
     statusGroupTitle: {
         fontSize: 15,
         fontWeight: '700',
         color: '#172B4D',
         flex: 1,
+        letterSpacing: 0.3,
     },
     statusGroupCount: {
-        fontSize: 13,
-        fontWeight: '600',
+        fontSize: 12,
+        fontWeight: '700',
         color: '#5E6C84',
+        backgroundColor: '#F4F5F7',
+        paddingHorizontal: 10,
+        paddingVertical: 3,
+        borderRadius: 12,
+        overflow: 'hidden',
     },
     sprintGroupHeader: {
         flexDirection: 'row',
@@ -1388,10 +1467,17 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
         paddingHorizontal: 14,
         backgroundColor: '#E6FCFF',
-        borderRadius: 8,
-        marginBottom: 8,
+        borderRadius: 10,
+        marginBottom: 10,
         borderLeftWidth: 4,
         borderLeftColor: '#00B8D9',
+        borderWidth: 1,
+        borderColor: '#B3F5FF',
+        shadowColor: '#00B8D9',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 2,
+        elevation: 1,
     },
     sprintGroupTitle: {
         fontSize: 16,
@@ -1401,7 +1487,8 @@ const styles = StyleSheet.create({
     },
     issuesList: {
         paddingHorizontal: 20,
-        paddingBottom: 20,
+        paddingTop: 8,
+        paddingBottom: 24,
     },
     issueCard: {
         backgroundColor: '#fff',
@@ -1426,14 +1513,21 @@ const styles = StyleSheet.create({
         color: '#0052CC',
     },
     statusBadge: {
-        paddingVertical: 4,
-        paddingHorizontal: 10,
-        borderRadius: 12,
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+        borderRadius: 14,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.15,
+        shadowRadius: 2,
+        elevation: 1,
     },
     statusText: {
         fontSize: 11,
         color: '#fff',
-        fontWeight: '600',
+        fontWeight: '700',
+        letterSpacing: 0.3,
+        textTransform: 'uppercase',
     },
     issueSummary: {
         fontSize: 16,
@@ -1448,11 +1542,13 @@ const styles = StyleSheet.create({
     },
     issueType: {
         fontSize: 12,
-        color: '#666',
-        backgroundColor: '#f5f5f5',
-        paddingVertical: 3,
-        paddingHorizontal: 8,
-        borderRadius: 4,
+        color: '#5E6C84',
+        backgroundColor: '#F4F5F7',
+        paddingVertical: 4,
+        paddingHorizontal: 10,
+        borderRadius: 6,
+        fontWeight: '600',
+        overflow: 'hidden',
     },
     assignee: {
         fontSize: 12,
@@ -1462,40 +1558,46 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingVertical: 60,
+        paddingVertical: 80,
+        paddingHorizontal: 30,
     },
     emptyText: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#999',
-        marginBottom: 5,
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#42526E',
+        marginBottom: 8,
+        textAlign: 'center',
+        letterSpacing: 0.2,
     },
     emptySubtext: {
-        fontSize: 14,
-        color: '#999',
+        fontSize: 15,
+        color: '#5E6C84',
+        textAlign: 'center',
+        lineHeight: 22,
     },
     createButton: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: '#0052CC',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 10,
         shadowColor: '#0052CC',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 3,
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
         elevation: 3,
     },
     createButtonIcon: {
         color: '#fff',
-        fontSize: 20,
+        fontSize: 18,
         fontWeight: '700',
-        marginRight: 4,
+        marginRight: 6,
     },
     createButtonText: {
         color: '#fff',
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: '700',
+        letterSpacing: 0.3,
     },
 });
