@@ -27,6 +27,7 @@ import {
     IssueCommentsSection,
 } from './issue';
 import IssueParentCard from './issue/IssueParentCard';
+import IssueRelatedLinksCard from './issue/IssueRelatedLinksCard';
 
 import { AttachmentPreviewModal, UserInfoModal } from './shared';
 
@@ -59,6 +60,9 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
         loading,
         authHeaders,
         currentUser,
+        issueLinks,
+        remoteLinks,
+        loadingLinks,
         refreshIssue,
         refreshComments,
     } = useIssueData(issueKey);
@@ -216,8 +220,6 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
         if (editingDescription && descriptionInput && richEditorRef.current) {
             // Longer timeout to ensure RichEditor is fully mounted
             setTimeout(() => {
-                console.log('Setting RichEditor content, length:', descriptionInput.length);
-                console.log('Content preview:', descriptionInput.substring(0, 100));
                 richEditorRef.current?.setContentHTML(descriptionInput);
             }, 300);
         }
@@ -643,7 +645,6 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
             );
 
             if (imageAttachments.length > 0) {
-                console.log(`Loading ${imageAttachments.length} image attachment(s)...`);
                 toast.info(`Loading ${imageAttachments.length} image(s)...`);
             }
 
@@ -652,16 +653,10 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
                     try {
                         const imageData = await fetchImageWithAuth(attachment.content, attachment.id, attachment.mimeType);
                         imageDataCache[attachment.id] = imageData;
-                        console.log(`Loaded image: ${attachment.filename}`);
                     } catch (error) {
                         console.error('Failed to load image:', attachment.filename, error);
                     }
                 }
-            }
-
-            const loadedCount = Object.keys(imageDataCache).length;
-            if (loadedCount > 0) {
-                console.log(`All ${loadedCount} image(s) loaded successfully`);
             }
         }
 
@@ -839,7 +834,6 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
             htmlContent = text;
         }
 
-        console.log('Generated HTML content length:', htmlContent.length);
         setDescriptionInput(htmlContent);
         setEditingDescription(true);
     };
@@ -893,8 +887,6 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
 
     // ==================== USER MENTION HANDLER ====================
     const handleMentionPress = async (accountId: string, displayName: string) => {
-        console.log('Mention pressed:', displayName, accountId);
-        
         // Show loading state
         setLoadingUserInfo(true);
         setShowUserInfoModal(true);
@@ -1022,6 +1014,18 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
                         onParentPress={(parentKey) => {
                             if (onNavigateToIssue) {
                                 onNavigateToIssue(parentKey);
+                            }
+                        }}
+                    />
+
+                    {/* Related Links (Confluence Pages & Related Issues) */}
+                    <IssueRelatedLinksCard
+                        issueLinks={issueLinks}
+                        remoteLinks={remoteLinks}
+                        loading={loadingLinks}
+                        onIssuePress={(relatedIssueKey) => {
+                            if (onNavigateToIssue) {
+                                onNavigateToIssue(relatedIssueKey);
                             }
                         }}
                     />

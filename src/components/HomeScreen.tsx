@@ -144,13 +144,11 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 let boardToSelect = response.boards[0];
 
                 if (defaultBoardId) {
-                    console.log(response.boards);
                     const defaultBoard = response.boards.find(b => b.id === defaultBoardId);
                     if (defaultBoard) {
                         boardToSelect = defaultBoard;
                     } else {
                         // Default board not in first page, try to load it specifically by ID
-                        console.log(`Default board ${defaultBoardId} not found in first page, fetching by ID...`);
                         try {
                             const specificBoard = await jiraApi.getBoardById(defaultBoardId);
                             if (specificBoard) {
@@ -158,7 +156,6 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                                 setBoards(prev => [specificBoard, ...prev]);
                                 boardToSelect = specificBoard;
                             } else {
-                                console.log(`Default board ${defaultBoardId} no longer exists, using first board`);
                                 await StorageService.clearDefaultBoard();
                             }
                         } catch (error) {
@@ -253,7 +250,6 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                     sprintsData = await jiraApi.getSprintsForBoard(boardId);
                     setSprints(sprintsData);
                 } catch (error) {
-                    console.log('Board does not support sprints, treating as Kanban');
                     setSprints([]);
                     setActiveSprint(null);
                     setBacklogIssues([]);
@@ -313,7 +309,6 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 }
             } else {
                 // Kanban board - no sprints, just load all board issues
-                console.log('Loading Kanban board - no sprints');
                 setSprints([]);
                 setActiveSprint(null);
                 setBacklogIssues([]);

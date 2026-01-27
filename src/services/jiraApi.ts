@@ -252,7 +252,6 @@ class JiraApiService {
         } catch (error: any) {
             // Board doesn't support sprints (Kanban or other board types)
             if (error?.response?.status === 400 || error?.response?.status === 404) {
-                console.log('Board does not support sprints');
                 return [];
             }
             console.error('Error fetching sprints:', error);
@@ -383,11 +382,6 @@ class JiraApiService {
                 },
             });
             const comments = response.data.comments || [];
-            console.log('Raw comments from API:', JSON.stringify(comments.map((c: any) => ({
-                id: c.id,
-                parent: c.parent,
-                jsdPublic: c.jsdPublic,
-            })), null, 2));
             return comments;
         } catch (error) {
             console.error('Error fetching issue comments:', error);
@@ -475,18 +469,12 @@ class JiraApiService {
                 },
             };
 
-            console.log('Comment payload:', JSON.stringify(payload, null, 2));
-
             // Add parent field for reply (only works in Jira Service Management)
             if (parentCommentId) {
                 payload.parent = { id: parentCommentId };
-                console.log('Adding comment with parent ID:', parentCommentId);
-                console.log('Full payload:', JSON.stringify(payload, null, 2));
             }
 
-            console.log('Posting comment to:', `/rest/api/3/issue/${issueKey}/comment`);
             const response = await api.post(`/rest/api/3/issue/${issueKey}/comment`, payload);
-            console.log('Comment created, response:', JSON.stringify(response.data, null, 2));
 
             // Clear issue details cache when comment is added
             this.clearCacheByPattern(`/rest/api/3/issue/${issueKey}`);
@@ -994,7 +982,6 @@ class JiraApiService {
 
             const payload = { fields };
 
-            console.log('Creating issue with payload:', JSON.stringify(payload, null, 2));
             const response = await api.post('/rest/api/3/issue', payload);
 
             // Clear relevant caches after creating issue
@@ -1007,7 +994,6 @@ class JiraApiService {
                     await api.post(`/rest/agile/1.0/sprint/${data.sprintId}/issue`, {
                         issues: [response.data.key],
                     });
-                    console.log(`Added issue ${response.data.key} to sprint ${data.sprintId}`);
                 } catch (sprintError) {
                     console.error('Error adding issue to sprint:', sprintError);
                     // Don't throw - issue was created successfully

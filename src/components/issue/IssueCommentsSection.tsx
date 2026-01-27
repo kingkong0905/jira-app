@@ -160,13 +160,9 @@ export default function IssueCommentsSection({
 
         // Extract text from ADF format
         if (comment.body?.content) {
-            console.log('=== COMMENT BODY DEBUG ===');
-            console.log('Comment ID:', comment.id);
-            console.log('Body structure:', JSON.stringify(comment.body, null, 2));
             return (
                 <View style={[styles.commentBody, { paddingLeft: 4, paddingRight: 4 }]}>
                     {comment.body.content.map((node: any, nodeIndex: number) => {
-                        console.log('Processing node type:', node.type);
                         if (node.type === 'paragraph' && node.content) {
                             // Check if paragraph contains mediaInline or other non-text items that need View
                             const hasMediaInline = node.content.some((item: any) =>
@@ -224,27 +220,13 @@ export default function IssueCommentsSection({
                                                 const mediaId = item.attrs?.id;
                                                 const mediaType = item.attrs?.type || 'file';
 
-                                                console.log('=== MEDIA INLINE DEBUG ===');
-                                                console.log('mediaInline attrs:', JSON.stringify(item.attrs, null, 2));
-                                                console.log('Looking for attachment with ID:', mediaId);
-                                                console.log('Total attachments available:', attachments?.length || 0);
-                                                if (attachments?.length) {
-                                                    console.log('Attachment IDs:', attachments.map((a: any) => a.id));
-                                                }
-
                                                 // Try to find attachment by ID first, but this usually won't work
                                                 // because mediaInline uses UUIDs while attachments have numeric IDs
                                                 let attachment = attachments?.find((a: any) => a.id === mediaId);
 
-                                                console.log('Found attachment:', attachment ? attachment.filename : 'NOT FOUND');
-                                                if (attachment) {
-                                                    console.log('Full attachment object:', JSON.stringify(attachment, null, 2));
-                                                }
-
                                                 // If not found, create a generic placeholder
                                                 // The actual file should be accessible via the issue's attachments
                                                 if (!attachment && mediaId) {
-                                                    console.log('Creating placeholder for mediaInline - file may be in attachments but not matched');
                                                     attachment = {
                                                         id: mediaId,
                                                         filename: 'File Attachment',
@@ -325,24 +307,14 @@ export default function IssueCommentsSection({
                         } else if (node.type === 'mediaSingle' && node.content) {
                             const mediaNode = node.content.find((n: any) => n.type === 'media');
                             if (mediaNode && mediaNode.attrs) {
-                                console.log('=== MEDIA NODE DEBUG ===');
-                                console.log('mediaNode.attrs:', JSON.stringify(mediaNode.attrs, null, 2));
-                                console.log('Available attachments:', attachments?.length || 0);
-
                                 const altText = mediaNode.attrs.alt || '';
                                 const mediaId = mediaNode.attrs.id;
                                 const mediaUrl = mediaNode.attrs.url;
                                 const mediaCollection = mediaNode.attrs.collection;
 
-                                console.log('altText:', altText);
-                                console.log('mediaId:', mediaId);
-                                console.log('mediaUrl:', mediaUrl);
-                                console.log('mediaCollection:', mediaCollection);
-
                                 // Try to find attachment by ID first, then by filename
                                 let attachment = attachments?.find(
                                     (a: any) => {
-                                        console.log('Checking attachment:', a.id, a.filename);
                                         return (mediaId && String(a.id) === String(mediaId)) ||
                                             (altText && a.filename === altText) ||
                                             (altText && a.filename && a.filename.includes(altText)) ||
@@ -350,26 +322,8 @@ export default function IssueCommentsSection({
                                     }
                                 );
 
-                                console.log('Found attachment:', attachment ? attachment.id : 'NOT FOUND');
-                                if (attachment) {
-                                    const attachmentAny = attachment as any;
-                                    console.log('Attachment properties:', {
-                                        id: attachment.id,
-                                        filename: attachment.filename,
-                                        mimeType: attachment.mimeType,
-                                        contentValue: attachmentAny.content,
-                                        contentType: typeof attachmentAny.content,
-                                        hasContent: !!attachmentAny.content,
-                                        hasSelf: !!attachmentAny.self,
-                                        selfValue: attachmentAny.self,
-                                        allKeys: Object.keys(attachmentAny),
-                                        fullAttachment: attachmentAny
-                                    });
-                                }
-
                                 // If not found in attachments array, create a temporary attachment object from media node
                                 if (!attachment && (mediaId || mediaUrl)) {
-                                    console.log('Creating temporary attachment');
                                     // Determine mimeType from filename extension
                                     let mimeType = 'application/octet-stream';
                                     if (altText.endsWith('.pdf')) {
@@ -399,7 +353,6 @@ export default function IssueCommentsSection({
                                         mimeType: mimeType,
                                         content: contentUrl,
                                     };
-                                    console.log('Temp attachment created:', attachment);
                                 }
 
                                 // Only render if attachment has content URL
@@ -412,19 +365,11 @@ export default function IssueCommentsSection({
                                         || (attachmentAny as any).content 
                                         || attachment.content;
                                     
-                                    console.log('Content URL check:', {
-                                        direct: attachmentAny.content,
-                                        typed: attachment.content,
-                                        final: contentUrl,
-                                        isValid: contentUrl && typeof contentUrl === 'string' && contentUrl.trim() !== ''
-                                    });
-                                    
                                     // If attachment from array doesn't have content, try to construct it
                                     if (!contentUrl || typeof contentUrl !== 'string' || contentUrl.trim() === '') {
                                         // Try mediaUrl first
                                         if (mediaUrl) {
                                             contentUrl = mediaUrl;
-                                            console.log('Using mediaUrl as content URL');
                                         } 
                                         // If attachment has a 'self' property, construct content URL from it
                                         // Jira API v3: self is /rest/api/3/attachment/{id}, content is /rest/api/3/attachment/content/{id}
@@ -434,7 +379,6 @@ export default function IssueCommentsSection({
                                             // self: https://jira.example.com/rest/api/3/attachment/12345
                                             // content: https://jira.example.com/rest/api/3/attachment/content/12345
                                             contentUrl = selfUrl.replace(/\/attachment\/(\d+)$/, '/attachment/content/$1');
-                                            console.log('Constructed content URL from self:', contentUrl);
                                         }
                                     }
                                     
@@ -443,7 +387,6 @@ export default function IssueCommentsSection({
                                         // Set on both typed and untyped to ensure it's accessible
                                         attachment.content = contentUrl;
                                         attachmentAny.content = contentUrl;
-                                        console.log('Content URL set successfully:', contentUrl);
                                     } else {
                                         // Log what we have for debugging
                                         console.warn('Attachment has no valid content URL after all attempts:', {

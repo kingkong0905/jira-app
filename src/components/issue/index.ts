@@ -9,6 +9,7 @@ export { default as IssueDetailsFields } from './IssueDetailsFields';
 export { default as IssueDescriptionCard } from './IssueDescriptionCard';
 export { default as IssueSubtasksCard } from './IssueSubtasksCard';
 export { default as IssueParentCard } from './IssueParentCard';
+export { default as IssueRelatedLinksCard } from './IssueRelatedLinksCard';
 export { default as IssueCommentsSection } from './IssueCommentsSection';
 
 // TODO: Add these as they're created

@@ -52,7 +52,6 @@ export default function AttachmentPreviewModal({
         if (!attachment?.mimeType.startsWith('video/')) return;
 
         const statusSubscription = videoPlayer.addListener('statusChange', (payload) => {
-            console.log('Video status changed:', payload.status, 'Error:', payload.error);
             if (payload.error) {
                 console.error('Video player error:', payload.error);
                 setVideoStatus('error');
@@ -102,8 +101,6 @@ export default function AttachmentPreviewModal({
                         }
                         style={styles.modalImage}
                         resizeMode="contain"
-                        onLoadStart={() => console.log('Image loading started')}
-                        onLoad={() => console.log('Image loaded successfully')}
                         onError={(error) => console.error('Image load error:', error.nativeEvent)}
                     />
                 </ScrollView>
