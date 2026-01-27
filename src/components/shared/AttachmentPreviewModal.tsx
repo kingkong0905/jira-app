@@ -42,7 +42,7 @@ export default function AttachmentPreviewModal({
 
     // Create video player for video attachments with auth headers
     const videoPlayer = useVideoPlayer(
-        attachment?.mimeType.startsWith('video/')
+        attachment?.mimeType.startsWith('video/') && attachment?.content
             ? { uri: attachment.content, headers: authHeaders }
             : { uri: '' }
     );
