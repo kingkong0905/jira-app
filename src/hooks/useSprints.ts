@@ -1,14 +1,19 @@
 import { useState, useCallback } from 'react';
-import { Alert } from 'react-native';
 import { jiraApi } from '../services/jiraApi';
 import { JiraSprint } from '../types/jira';
 
 interface UseSprintsOptions {
     boardId: number | null;
     onRefresh?: () => Promise<void>;
+    toast: {
+        success: (message: string) => void;
+        error: (message: string) => void;
+        warning: (message: string) => void;
+    };
+    onConfirmDelete?: (sprintName: string, onConfirm: () => void) => void;
 }
 
-export const useSprints = ({ boardId, onRefresh }: UseSprintsOptions) => {
+export const useSprints = ({ boardId, onRefresh, toast, onConfirmDelete }: UseSprintsOptions) => {
     const [selectedSprint, setSelectedSprint] = useState<{
         id: number;
         name: string;
@@ -64,14 +69,14 @@ export const useSprints = ({ boardId, onRefresh }: UseSprintsOptions) => {
                 setSelectedSprint(null);
                 setShowOptionsModal(false);
 
-                Alert.alert('Success', 'Sprint updated successfully');
+                toast.success('Sprint updated successfully');
 
                 if (onRefresh) {
                     await onRefresh();
                 }
             } catch (error) {
                 console.error('Error updating sprint:', error);
-                Alert.alert('Error', 'Failed to update sprint. Please try again.');
+                toast.error('Failed to update sprint. Please try again.');
             } finally {
                 setUpdating(false);
             }
@@ -82,44 +87,34 @@ export const useSprints = ({ boardId, onRefresh }: UseSprintsOptions) => {
     const handleDeleteSprint = useCallback(async () => {
         if (!selectedSprint) return;
 
-        Alert.alert(
-            'Delete Sprint',
-            `Are you sure you want to delete "${selectedSprint.name}"? This action cannot be undone.`,
-            [
-                {
-                    text: 'Cancel',
-                    style: 'cancel',
-                },
-                {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            setDeleting(true);
-                            await jiraApi.deleteSprint(selectedSprint.id);
+        const executeDelete = async () => {
+            try {
+                setDeleting(true);
+                await jiraApi.deleteSprint(selectedSprint.id);
 
-                            setSelectedSprint(null);
-                            setShowOptionsModal(false);
+                setSelectedSprint(null);
+                setShowOptionsModal(false);
 
-                            Alert.alert('Success', 'Sprint deleted successfully');
+                toast.success('Sprint deleted successfully');
 
-                            if (onRefresh) {
-                                await onRefresh();
-                            }
-                        } catch (error) {
-                            console.error('Error deleting sprint:', error);
-                            Alert.alert(
-                                'Error',
-                                'Failed to delete sprint. Please try again.'
-                            );
-                        } finally {
-                            setDeleting(false);
-                        }
-                    },
-                },
-            ]
-        );
-    }, [selectedSprint, onRefresh]);
+                if (onRefresh) {
+                    await onRefresh();
+                }
+            } catch (error) {
+                console.error('Error deleting sprint:', error);
+                toast.error('Failed to delete sprint. Please try again.');
+            } finally {
+                setDeleting(false);
+            }
+        };
+
+        if (onConfirmDelete) {
+            onConfirmDelete(selectedSprint.name, executeDelete);
+        } else {
+            // Fallback if no confirmation handler provided
+            executeDelete();
+        }
+    }, [selectedSprint, onRefresh, toast, onConfirmDelete]);
 
     const handleCreateSprint = useCallback(
         async (data: {
@@ -131,22 +126,22 @@ export const useSprints = ({ boardId, onRefresh }: UseSprintsOptions) => {
             if (!boardId) return;
 
             if (!data.name.trim()) {
-                Alert.alert('Validation Error', 'Please enter a sprint name');
+                toast.warning('Please enter a sprint name');
                 return;
             }
 
             if (!data.startDate) {
-                Alert.alert('Validation Error', 'Please select a start date');
+                toast.warning('Please select a start date');
                 return;
             }
 
             if (!data.endDate) {
-                Alert.alert('Validation Error', 'Please select an end date');
+                toast.warning('Please select an end date');
                 return;
             }
 
             if (data.startDate >= data.endDate) {
-                Alert.alert('Validation Error', 'End date must be after start date');
+                toast.warning('End date must be after start date');
                 return;
             }
 
@@ -164,15 +159,14 @@ export const useSprints = ({ boardId, onRefresh }: UseSprintsOptions) => {
                 );
 
                 setShowCreateModal(false);
-                Alert.alert('Success', 'Sprint created successfully');
+                toast.success('Sprint created successfully');
 
                 if (onRefresh) {
                     await onRefresh();
                 }
             } catch (error: any) {
                 console.error('Error creating sprint:', error);
-                Alert.alert(
-                    'Error',
+                toast.error(
                     error?.response?.data?.errorMessages?.[0] ||
                     'Failed to create sprint'
                 );

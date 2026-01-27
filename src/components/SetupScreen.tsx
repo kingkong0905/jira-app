@@ -6,7 +6,6 @@ import {
     TouchableOpacity,
     StyleSheet,
     ScrollView,
-    Alert,
     ActivityIndicator,
     Platform,
     Keyboard,
@@ -17,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StorageService } from '../services/storage';
 import { jiraApi } from '../services/jiraApi';
 import Logo from './Logo';
+import { useToast } from './shared/ToastContext';
 
 interface SetupScreenProps {
     onComplete: () => void;
@@ -29,10 +29,11 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
     const [apiToken, setApiToken] = useState('');
     const [loading, setLoading] = useState(false);
     const scrollViewRef = useRef<ScrollView>(null);
+    const toast = useToast();
 
     const handleStep1Next = () => {
         if (!apiToken.trim()) {
-            Alert.alert('Error', 'Please enter your API token');
+            toast.warning('Please enter your API token');
             return;
         }
         setStep(2);
@@ -41,20 +42,20 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
     const handleStep2Submit = async () => {
         // Validate email
         if (!email.trim()) {
-            Alert.alert('Error', 'Please enter your email');
+            toast.warning('Please enter your email');
             return;
         }
 
         // Validate Jira URL
         if (!jiraUrl.trim()) {
-            Alert.alert('Error', 'Please enter your Jira URL');
+            toast.warning('Please enter your Jira URL');
             return;
         }
 
         try {
             new URL(jiraUrl);
         } catch {
-            Alert.alert('Error', 'Please enter a valid URL (e.g., https://your-domain.atlassian.net)');
+            toast.error('Please enter a valid URL (e.g., https://your-domain.atlassian.net)');
             return;
         }
 
@@ -73,10 +74,7 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
             if (Platform.OS !== 'web') {
                 const isConnected = await jiraApi.testConnection();
                 if (!isConnected) {
-                    Alert.alert(
-                        'Connection Failed',
-                        'Unable to connect to Jira. Please check your credentials and try again.'
-                    );
+                    toast.error('Unable to connect to Jira. Please check your credentials and try again.');
                     setLoading(false);
                     return;
                 }
@@ -89,18 +87,16 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
                 ? 'Configuration saved! Note: Due to browser CORS restrictions, some features may be limited on web.'
                 : 'Configuration saved successfully!';
 
-            Alert.alert('Success', successMessage, [
-                {
-                    text: 'OK',
-                    onPress: onComplete,
-                },
-            ]);
+            toast.success(successMessage, 2000);
+            setTimeout(() => {
+                onComplete();
+            }, 500);
         } catch (error) {
             console.error('Setup error:', error);
             const errorMessage = Platform.OS === 'web'
                 ? 'Failed to save configuration. Web browsers have CORS limitations. Please use the mobile app for best experience.'
                 : 'Failed to save configuration. Please try again.';
-            Alert.alert('Error', errorMessage);
+            toast.error(errorMessage);
         } finally {
             setLoading(false);
         }

@@ -1,11 +1,14 @@
 import { Stack } from 'expo-router';
+import { ToastProvider } from '../src/components/shared/ToastContext';
 
 export default function Layout() {
     return (
-        <Stack
-            screenOptions={{
-                headerShown: false,
-            }}
-        />
+        <ToastProvider>
+            <Stack
+                screenOptions={{
+                    headerShown: false,
+                }}
+            />
+        </ToastProvider>
     );
 }

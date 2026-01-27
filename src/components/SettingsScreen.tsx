@@ -6,7 +6,6 @@ import {
     TouchableOpacity,
     StyleSheet,
     ScrollView,
-    Alert,
     ActivityIndicator,
     Platform,
     FlatList,
@@ -19,6 +18,7 @@ import { StorageService } from '../services/storage';
 import { jiraApi } from '../services/jiraApi';
 import { JiraBoard } from '../types/jira';
 import { SkeletonLoader } from './shared/SkeletonLoader';
+import { useToast } from './shared/ToastContext';
 
 interface SettingsScreenProps {
     onBack: () => void;
@@ -43,8 +43,10 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
     const [savingBoard, setSavingBoard] = useState(false);
     const [boardTypeFilter, setBoardTypeFilter] = useState<'all' | 'scrum' | 'kanban'>('all');
     const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const scrollViewRef = useRef<ScrollView>(null);
     const apiTokenRef = useRef<View>(null);
+    const toast = useToast();
 
     useEffect(() => {
         loadCurrentConfig();
@@ -85,7 +87,7 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
             }
         } catch (error) {
             console.error('Error loading config:', error);
-            Alert.alert('Error', 'Failed to load current configuration');
+            toast.error('Failed to load current configuration');
         } finally {
             setLoading(false);
         }
@@ -177,16 +179,16 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
                 // Clear default board
                 await StorageService.clearDefaultBoard();
                 setDefaultBoardId(null);
-                Alert.alert('Success', 'Default board cleared');
+                toast.info('Default board cleared');
             } else {
                 // Save new default board
                 await StorageService.setDefaultBoardId(tempSelectedBoardId);
                 setDefaultBoardId(tempSelectedBoardId);
-                Alert.alert('Success', 'Default board saved successfully');
+                toast.success('Default board saved successfully');
             }
         } catch (error) {
             console.error('Error saving default board:', error);
-            Alert.alert('Error', 'Failed to save default board');
+            toast.error('Failed to save default board');
         } finally {
             setSavingBoard(false);
         }
@@ -194,24 +196,24 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
 
     const validateInputs = (): boolean => {
         if (!email.trim()) {
-            Alert.alert('Error', 'Please enter your email');
+            toast.warning('Please enter your email');
             return false;
         }
 
         if (!jiraUrl.trim()) {
-            Alert.alert('Error', 'Please enter your Jira URL');
+            toast.warning('Please enter your Jira URL');
             return false;
         }
 
         if (!apiToken.trim()) {
-            Alert.alert('Error', 'Please enter your API token');
+            toast.warning('Please enter your API token');
             return false;
         }
 
         try {
             new URL(jiraUrl);
         } catch {
-            Alert.alert('Error', 'Please enter a valid URL');
+            toast.error('Please enter a valid URL');
             return false;
         }
 
@@ -236,10 +238,7 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
             if (Platform.OS !== 'web') {
                 const isConnected = await jiraApi.testConnection();
                 if (!isConnected) {
-                    Alert.alert(
-                        'Connection Failed',
-                        'Unable to connect to Jira. Please check your credentials.'
-                    );
+                    toast.error('Unable to connect to Jira. Please check your credentials.');
                     setSaving(false);
                     return;
                 }
@@ -252,42 +251,32 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
                 ? 'Settings saved! Note: Web browsers have CORS limitations. Use mobile app for full functionality.'
                 : 'Settings saved successfully!';
 
-            Alert.alert('Success', successMessage, [
-                {
-                    text: 'OK',
-                    onPress: onBack,
-                },
-            ]);
+            toast.success(successMessage, 2000);
+            setTimeout(() => {
+                onBack();
+            }, 500);
         } catch (error) {
             console.error('Save error:', error);
-            Alert.alert('Error', 'Failed to save settings');
+            toast.error('Failed to save settings');
         } finally {
             setSaving(false);
         }
     };
 
     const handleLogout = () => {
-        Alert.alert(
-            'Logout',
-            'Are you sure you want to logout? This will clear all your credentials.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Logout',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            await StorageService.clearConfig();
-                            jiraApi.reset();
-                            onLogout();
-                        } catch (error) {
-                            console.error('Logout error:', error);
-                            Alert.alert('Error', 'Failed to logout');
-                        }
-                    },
-                },
-            ]
-        );
+        setShowLogoutConfirm(true);
+    };
+
+    const confirmLogout = async () => {
+        try {
+            await StorageService.clearConfig();
+            jiraApi.reset();
+            setShowLogoutConfirm(false);
+            onLogout();
+        } catch (error) {
+            console.error('Logout error:', error);
+            toast.error('Failed to logout');
+        }
     };
 
     if (loading) {
@@ -624,6 +613,37 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
                                 <Text style={styles.noResultsText}>No boards found</Text>
                             </View>
                         )}
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Logout Confirmation Modal */}
+            <Modal
+                visible={showLogoutConfirm}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShowLogoutConfirm(false)}
+            >
+                <View style={styles.confirmOverlay}>
+                    <View style={styles.confirmDialog}>
+                        <Text style={styles.confirmTitle}>Logout</Text>
+                        <Text style={styles.confirmMessage}>
+                            Are you sure you want to logout? This will clear all your credentials.
+                        </Text>
+                        <View style={styles.confirmButtons}>
+                            <TouchableOpacity
+                                style={[styles.confirmButton, styles.confirmButtonCancel]}
+                                onPress={() => setShowLogoutConfirm(false)}
+                            >
+                                <Text style={styles.confirmButtonTextCancel}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.confirmButton, styles.confirmButtonLogout]}
+                                onPress={confirmLogout}
+                            >
+                                <Text style={styles.confirmButtonText}>Logout</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </Modal>
@@ -1114,5 +1134,66 @@ const styles = StyleSheet.create({
     versionText: {
         fontSize: 14,
         color: '#999',
+    },
+    confirmOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    confirmDialog: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        padding: 24,
+        width: '100%',
+        maxWidth: 400,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    confirmTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#172B4D',
+        marginBottom: 12,
+    },
+    confirmMessage: {
+        fontSize: 15,
+        color: '#5E6C84',
+        lineHeight: 22,
+        marginBottom: 24,
+    },
+    confirmButtons: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    confirmButton: {
+        flex: 1,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    confirmButtonCancel: {
+        backgroundColor: '#F4F5F7',
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+    },
+    confirmButtonLogout: {
+        backgroundColor: '#DE350B',
+    },
+    confirmButtonTextCancel: {
+        color: '#172B4D',
+        fontSize: 15,
+        fontWeight: '600',
+    },
+    confirmButtonText: {
+        color: '#fff',
+        fontSize: 15,
+        fontWeight: '600',
     },
 });

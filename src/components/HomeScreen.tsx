@@ -7,11 +7,11 @@ import {
     TouchableOpacity,
     RefreshControl,
     ActivityIndicator,
-    Alert,
     Platform,
     TextInput,
     ScrollView,
     Image,
+    Modal,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -29,6 +29,7 @@ import { CreateSprintModal } from './sprint/CreateSprintModal';
 import { UpdateSprintModal } from './sprint/UpdateSprintModal';
 import { AssigneeFilter } from './filters/AssigneeFilter';
 import { useSprints } from '../hooks/useSprints';
+import { useToast } from './shared/ToastContext';
 
 interface HomeScreenProps {
     onOpenSettings: () => void;
@@ -63,8 +64,12 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
     const [collapsedSprints, setCollapsedSprints] = useState<Set<string>>(new Set());
     const [boardTypeFilter, setBoardTypeFilter] = useState<'all' | 'scrum' | 'kanban'>('all');
     const [searchingBoards, setSearchingBoards] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [sprintToDelete, setSprintToDelete] = useState<{ name: string; onConfirm: () => void } | null>(null);
+    const [showCompleteSprint, setShowCompleteSprint] = useState(false);
     const boardListRef = useRef<FlatList>(null);
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const toast = useToast();
 
     // Sprint management with custom hook
     const sprintManager = useSprints({
@@ -73,6 +78,11 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
             if (selectedBoard) {
                 await loadIssuesForBoard(selectedBoard.id);
             }
+        },
+        toast,
+        onConfirmDelete: (sprintName, onConfirm) => {
+            setSprintToDelete({ name: sprintName, onConfirm });
+            setShowDeleteConfirm(true);
         },
     });
 
@@ -91,7 +101,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
             }
         } catch (error) {
             console.error('Initialization error:', error);
-            Alert.alert('Error', 'Failed to initialize. Please check your settings.');
+            toast.error('Failed to initialize. Please check your settings.');
         } finally {
             setLoading(false);
         }
@@ -170,7 +180,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 : 'Failed to load boards. Please check your credentials and internet connection.';
 
             setError(errorMessage);
-            Alert.alert('Error', errorMessage);
+            toast.error(errorMessage);
         }
     };
 
@@ -315,7 +325,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
             console.error('Error loading issues:', error);
             const errorMsg = error?.response?.data?.errorMessages?.[0] || 'Failed to load issues for this board';
             setError(errorMsg);
-            Alert.alert('Error', errorMsg);
+            toast.error(errorMsg);
             // Reset state on error
             setIssues([]);
             setBacklogIssues([]);
@@ -602,7 +612,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
 
     const handleCreateSprintPress = () => {
         if (!selectedBoard) {
-            Alert.alert('No Board Selected', 'Please select a board first');
+            toast.warning('Please select a board first');
             return;
         }
         sprintManager.setShowCreateModal(true);
@@ -610,36 +620,25 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
 
     const handleCompleteSprint = async () => {
         if (!activeSprint) return;
+        setShowCompleteSprint(true);
+    };
 
-        Alert.alert(
-            'Complete Sprint',
-            `Are you sure you want to complete "${activeSprint.name}"?`,
-            [
-                {
-                    text: 'Cancel',
-                    style: 'cancel',
-                },
-                {
-                    text: 'Complete',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            setLoading(true);
-                            await jiraApi.completeSprint(activeSprint.id);
-                            Alert.alert('Success', 'Sprint completed successfully');
-                            if (selectedBoard) {
-                                await loadIssuesForBoard(selectedBoard.id);
-                            }
-                        } catch (error: any) {
-                            console.error('Error completing sprint:', error);
-                            Alert.alert('Error', error?.response?.data?.errorMessages?.[0] || 'Failed to complete sprint');
-                        } finally {
-                            setLoading(false);
-                        }
-                    },
-                },
-            ]
-        );
+    const confirmCompleteSprint = async () => {
+        if (!activeSprint) return;
+        try {
+            setLoading(true);
+            setShowCompleteSprint(false);
+            await jiraApi.completeSprint(activeSprint.id);
+            toast.success('Sprint completed successfully');
+            if (selectedBoard) {
+                await loadIssuesForBoard(selectedBoard.id);
+            }
+        } catch (error: any) {
+            console.error('Error completing sprint:', error);
+            toast.error(error?.response?.data?.errorMessages?.[0] || 'Failed to complete sprint');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleBackFromDetails = async () => {
@@ -652,7 +651,7 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
 
     const handleCreateIssue = () => {
         if (!selectedBoard) {
-            Alert.alert('No Board Selected', 'Please select a board first');
+            toast.warning('Please select a board first');
             return;
         }
         setShowCreateIssue(true);
@@ -1583,6 +1582,77 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
                 onUpdate={sprintManager.handleUpdateSprint}
                 updating={sprintManager.updating}
             />
+
+            {/* Sprint Delete Confirmation Modal */}
+            <Modal
+                visible={showDeleteConfirm}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShowDeleteConfirm(false)}
+            >
+                <View style={styles.confirmOverlay}>
+                    <View style={styles.confirmDialog}>
+                        <Text style={styles.confirmTitle}>Delete Sprint</Text>
+                        <Text style={styles.confirmMessage}>
+                            Are you sure you want to delete "{sprintToDelete?.name}"? This action cannot be undone.
+                        </Text>
+                        <View style={styles.confirmButtons}>
+                            <TouchableOpacity
+                                style={[styles.confirmButton, styles.confirmButtonCancel]}
+                                onPress={() => {
+                                    setShowDeleteConfirm(false);
+                                    setSprintToDelete(null);
+                                }}
+                            >
+                                <Text style={styles.confirmButtonTextCancel}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.confirmButton, styles.confirmButtonDelete]}
+                                onPress={() => {
+                                    if (sprintToDelete) {
+                                        sprintToDelete.onConfirm();
+                                    }
+                                    setShowDeleteConfirm(false);
+                                    setSprintToDelete(null);
+                                }}
+                            >
+                                <Text style={styles.confirmButtonText}>Delete</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Complete Sprint Confirmation Modal */}
+            <Modal
+                visible={showCompleteSprint}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShowCompleteSprint(false)}
+            >
+                <View style={styles.confirmOverlay}>
+                    <View style={styles.confirmDialog}>
+                        <Text style={styles.confirmTitle}>Complete Sprint</Text>
+                        <Text style={styles.confirmMessage}>
+                            Are you sure you want to complete "{activeSprint?.name}"?
+                        </Text>
+                        <View style={styles.confirmButtons}>
+                            <TouchableOpacity
+                                style={[styles.confirmButton, styles.confirmButtonCancel]}
+                                onPress={() => setShowCompleteSprint(false)}
+                            >
+                                <Text style={styles.confirmButtonTextCancel}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.confirmButton, styles.confirmButtonComplete]}
+                                onPress={confirmCompleteSprint}
+                            >
+                                <Text style={styles.confirmButtonText}>Complete</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </View >
     );
 }
@@ -3042,5 +3112,69 @@ const styles = StyleSheet.create({
     },
     sprintOptionTextDelete: {
         color: '#DE350B',
+    },
+    confirmOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    confirmDialog: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        padding: 24,
+        width: '100%',
+        maxWidth: 400,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    confirmTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#172B4D',
+        marginBottom: 12,
+    },
+    confirmMessage: {
+        fontSize: 15,
+        color: '#5E6C84',
+        lineHeight: 22,
+        marginBottom: 24,
+    },
+    confirmButtons: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    confirmButton: {
+        flex: 1,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    confirmButtonCancel: {
+        backgroundColor: '#F4F5F7',
+        borderWidth: 1,
+        borderColor: '#DFE1E6',
+    },
+    confirmButtonDelete: {
+        backgroundColor: '#DE350B',
+    },
+    confirmButtonComplete: {
+        backgroundColor: '#0052CC',
+    },
+    confirmButtonTextCancel: {
+        color: '#172B4D',
+        fontSize: 15,
+        fontWeight: '600',
+    },
+    confirmButtonText: {
+        color: '#fff',
+        fontSize: 15,
+        fontWeight: '600',
     },
 });

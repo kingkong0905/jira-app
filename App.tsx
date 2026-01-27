@@ -7,6 +7,7 @@ import HomeScreen from './src/components/HomeScreen';
 import SettingsScreen from './src/components/SettingsScreen';
 import { StorageService } from './src/services/storage';
 import { jiraApi } from './src/services/jiraApi';
+import { ToastProvider } from './src/components/shared/ToastContext';
 
 type Screen = 'setup' | 'home' | 'settings';
 
@@ -62,19 +63,21 @@ export default function App() {
 
     return (
         <SafeAreaProvider>
-            <StatusBar style="auto" />
-            {currentScreen === 'setup' && (
-                <SetupScreen onComplete={handleSetupComplete} />
-            )}
-            {currentScreen === 'home' && (
-                <HomeScreen onOpenSettings={handleOpenSettings} />
-            )}
-            {currentScreen === 'settings' && (
-                <SettingsScreen
-                    onBack={handleBackFromSettings}
-                    onLogout={handleLogout}
-                />
-            )}
+            <ToastProvider>
+                <StatusBar style="auto" />
+                {currentScreen === 'setup' && (
+                    <SetupScreen onComplete={handleSetupComplete} />
+                )}
+                {currentScreen === 'home' && (
+                    <HomeScreen onOpenSettings={handleOpenSettings} />
+                )}
+                {currentScreen === 'settings' && (
+                    <SettingsScreen
+                        onBack={handleBackFromSettings}
+                        onLogout={handleLogout}
+                    />
+                )}
+            </ToastProvider>
         </SafeAreaProvider>
     );
 }

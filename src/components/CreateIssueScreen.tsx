@@ -6,7 +6,6 @@ import {
     TouchableOpacity,
     ScrollView,
     ActivityIndicator,
-    Alert,
     Platform,
     StyleSheet,
     KeyboardAvoidingView,
@@ -21,6 +20,7 @@ import PickerModal, { PickerItem } from './shared/PickerModal';
 import { formatDateOnly, getPriorityEmoji } from '../utils/helpers';
 import { SkeletonLoader, SkeletonText } from './shared/SkeletonLoader';
 import { FadeInView } from './shared/FadeInView';
+import { useToast } from './shared/ToastContext';
 
 interface CreateIssueScreenProps {
     boardId: number;
@@ -66,6 +66,7 @@ export default function CreateIssueScreen({
     const [generatingDescription, setGeneratingDescription] = useState(false);
 
     const richEditorRef = useRef<RichEditor>(null);
+    const toast = useToast();
 
     useEffect(() => {
         loadInitialData();
@@ -92,7 +93,7 @@ export default function CreateIssueScreen({
             }
 
             if (!projId) {
-                Alert.alert('Error', 'Could not find project for this board');
+                toast.error('Could not find project for this board');
                 onBack();
                 return;
             }
@@ -122,7 +123,7 @@ export default function CreateIssueScreen({
             }
         } catch (error) {
             console.error('Error loading initial data:', error);
-            Alert.alert('Error', 'Failed to load form data. Please try again.');
+            toast.error('Failed to load form data. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -167,12 +168,12 @@ export default function CreateIssueScreen({
     const handleCreate = async () => {
         // Validation
         if (!selectedIssueType) {
-            Alert.alert('Required Field', 'Please select an issue type');
+            toast.warning('Please select an issue type');
             return;
         }
 
         if (!summary.trim()) {
-            Alert.alert('Required Field', 'Please enter a summary');
+            toast.warning('Please enter a summary');
             return;
         }
 
@@ -192,20 +193,14 @@ export default function CreateIssueScreen({
 
             await jiraApi.createIssue(projectId, issueData);
 
-            Alert.alert('Success', 'Issue created successfully', [
-                {
-                    text: 'OK',
-                    onPress: () => {
-                        onIssueCreated();
-                    },
-                },
-            ]);
+            toast.success('Issue created successfully');
+            onIssueCreated();
         } catch (error: any) {
             console.error('Error creating issue:', error);
             const errorMessage = error?.response?.data?.errorMessages?.[0]
                 || error?.response?.data?.errors
                 || 'Failed to create issue. Please try again.';
-            Alert.alert('Error', typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage));
+            toast.error(typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage));
         } finally {
             setCreating(false);
         }
@@ -242,7 +237,7 @@ export default function CreateIssueScreen({
 
     const handleGenerateDescription = async () => {
         if (!summary.trim()) {
-            Alert.alert('Summary Required', 'Please enter a summary first before generating description.');
+            toast.warning('Please enter a summary first before generating description.');
             return;
         }
 
@@ -259,7 +254,7 @@ export default function CreateIssueScreen({
             }
         } catch (error) {
             console.error('Error generating description:', error);
-            Alert.alert('Error', 'Failed to generate description template. Please try again.');
+            toast.error('Failed to generate description template. Please try again.');
         } finally {
             setGeneratingDescription(false);
         }
