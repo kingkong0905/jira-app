@@ -38,6 +38,7 @@ import {
     PriorityPickerModal,
     SprintPickerModal,
 } from './modals';
+import ConfluenceLinkModal from './modals/ConfluenceLinkModal';
 
 // Utils
 import { getStatusColor, getPriorityEmoji } from '../utils/fieldFormatters';
@@ -65,6 +66,7 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
         loadingLinks,
         refreshIssue,
         refreshComments,
+        refreshLinks,
     } = useIssueData(issueKey);
 
     // ==================== SUBTASKS ====================
@@ -233,6 +235,10 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
     const [showUserInfoModal, setShowUserInfoModal] = useState(false);
     const [selectedUser, setSelectedUser] = useState<any>(null);
     const [loadingUserInfo, setLoadingUserInfo] = useState(false);
+
+    // ==================== CONFLUENCE LINK MODAL ====================
+    const [showConfluenceLinkModal, setShowConfluenceLinkModal] = useState(false);
+    const [addingConfluenceLink, setAddingConfluenceLink] = useState(false);
 
     const fetchImageWithAuth = async (url: string, attachmentId: string, mimeType: string): Promise<string> => {
         if (loadedImageData[attachmentId]) return loadedImageData[attachmentId];
@@ -921,6 +927,21 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
         }
     };
 
+    // ==================== CONFLUENCE LINK HANDLER ====================
+    const handleAddConfluenceLink = async (url: string, title: string) => {
+        try {
+            setAddingConfluenceLink(true);
+            await jiraApi.createRemoteLink(issueKey, url, title, 'Documentation');
+            await refreshLinks();
+            toast.success('Confluence page linked successfully');
+        } catch (error: any) {
+            toast.error(error?.response?.data?.errorMessages?.[0] || 'Failed to link Confluence page');
+            throw error;
+        } finally {
+            setAddingConfluenceLink(false);
+        }
+    };
+
     // ==================== COMMENT HANDLERS ====================
     const handleAddComment = async () => {
         await addComment(refreshComments);
@@ -1028,6 +1049,7 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
                                 onNavigateToIssue(relatedIssueKey);
                             }
                         }}
+                        onAddConfluenceLink={Platform.OS !== 'web' ? () => setShowConfluenceLinkModal(true) : undefined}
                     />
 
                     {/* Subtasks */}
@@ -1100,6 +1122,14 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
                     setShowUserInfoModal(false);
                     setSelectedUser(null);
                 }}
+            />
+
+            {/* Confluence Link Modal */}
+            <ConfluenceLinkModal
+                visible={showConfluenceLinkModal}
+                loading={addingConfluenceLink}
+                onClose={() => setShowConfluenceLinkModal(false)}
+                onAdd={handleAddConfluenceLink}
             />
 
             {/* Assignee Picker Modal */}

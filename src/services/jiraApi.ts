@@ -801,6 +801,30 @@ class JiraApiService {
         }
     }
 
+    async createRemoteLink(issueKey: string, url: string, title: string, relationship?: string): Promise<void> {
+        try {
+            const api = this.getAxiosInstance();
+            const payload: any = {
+                object: {
+                    url: url,
+                    title: title,
+                },
+            };
+
+            if (relationship) {
+                payload.relationship = relationship;
+            }
+
+            await api.post(`/rest/api/3/issue/${issueKey}/remotelink`, payload);
+
+            // Clear cache for remote links
+            this.clearCacheByPattern(`/rest/api/3/issue/${issueKey}/remotelink`);
+        } catch (error) {
+            console.error('Error creating remote link:', error);
+            throw error;
+        }
+    }
+
     async getAvailableTransitions(issueKey: string): Promise<any[]> {
         try {
             const api = this.getAxiosInstance();

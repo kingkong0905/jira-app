@@ -14,6 +14,7 @@ interface IssueRelatedLinksCardProps {
     remoteLinks: any[];
     loading?: boolean;
     onIssuePress?: (issueKey: string) => void;
+    onAddConfluenceLink?: () => void;
 }
 
 export default function IssueRelatedLinksCard({
@@ -21,6 +22,7 @@ export default function IssueRelatedLinksCard({
     remoteLinks,
     loading = false,
     onIssuePress,
+    onAddConfluenceLink,
 }: IssueRelatedLinksCardProps) {
     const getStatusColor = (statusCategory?: string): string => {
         const colors: { [key: string]: string } = {
@@ -68,7 +70,18 @@ export default function IssueRelatedLinksCard({
     if (loading) {
         return (
             <View style={styles.container}>
-                <Text style={styles.title}>Related Links</Text>
+                <View style={styles.titleRow}>
+                    <Text style={styles.title}>Related Links</Text>
+                    {onAddConfluenceLink && (
+                        <TouchableOpacity
+                            style={styles.addButton}
+                            onPress={onAddConfluenceLink}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={styles.addButtonText}>+ Add Link</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="small" color="#0052CC" />
                     <Text style={styles.loadingText}>Loading links...</Text>
@@ -79,13 +92,27 @@ export default function IssueRelatedLinksCard({
 
     const hasContent = relatedIssues.length > 0 || confluencePages.length > 0 || otherRemoteLinks.length > 0;
 
-    if (!hasContent) {
-        return null;
-    }
-
     return (
         <View style={styles.container}>
-            <Text style={styles.title}>Related Links</Text>
+            <View style={styles.titleRow}>
+                <Text style={styles.title}>Related Links</Text>
+                {onAddConfluenceLink && (
+                    <TouchableOpacity
+                        style={styles.addButton}
+                        onPress={onAddConfluenceLink}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.addButtonText}>+ Add Link</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+
+            {!hasContent && (
+                <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>No links added yet</Text>
+                    <Text style={styles.emptyHint}>Use "Add Link" to link Confluence pages or other resources</Text>
+                </View>
+            )}
 
             {/* Related Issues */}
             {relatedIssues.length > 0 && (
@@ -234,11 +261,27 @@ const styles = StyleSheet.create({
         shadowRadius: 2,
         elevation: 2,
     },
+    titleRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
     title: {
         fontSize: 16,
         fontWeight: '600',
         color: '#172B4D',
-        marginBottom: 16,
+    },
+    addButton: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 6,
+        backgroundColor: '#0052CC',
+    },
+    addButtonText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#fff',
     },
     loadingContainer: {
         flexDirection: 'row',
@@ -339,5 +382,22 @@ const styles = StyleSheet.create({
         color: '#7A869A',
         marginTop: 4,
         lineHeight: 16,
+    },
+    emptyContainer: {
+        padding: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    emptyText: {
+        fontSize: 14,
+        color: '#7A869A',
+        fontWeight: '500',
+        marginBottom: 8,
+    },
+    emptyHint: {
+        fontSize: 12,
+        color: '#B3BAC5',
+        textAlign: 'center',
+        lineHeight: 18,
     },
 });
