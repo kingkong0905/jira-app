@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Share, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { StorageService } from '../../services/storage';
 
 interface IssueHeaderProps {
     issueKey: string;
@@ -8,13 +9,51 @@ interface IssueHeaderProps {
 }
 
 export default function IssueHeader({ issueKey, onBack }: IssueHeaderProps) {
+    const handleShare = async () => {
+        try {
+            const config = await StorageService.getConfig();
+            if (!config) {
+                return;
+            }
+
+            const issueUrl = `${config.jiraUrl}/browse/${issueKey}`;
+            
+            if (Platform.OS === 'web') {
+                // For web, copy to clipboard
+                if (navigator.clipboard) {
+                    await navigator.clipboard.writeText(issueUrl);
+                    alert('Issue URL copied to clipboard!');
+                } else {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = issueUrl;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    alert('Issue URL copied to clipboard!');
+                }
+            } else {
+                // For mobile, use native share
+                await Share.share({
+                    message: issueUrl,
+                    url: issueUrl,
+                });
+            }
+        } catch (error) {
+            console.error('Error sharing issue:', error);
+        }
+    };
+
     return (
         <LinearGradient colors={['#0052CC', '#0065FF']} style={styles.header}>
             <TouchableOpacity onPress={onBack} style={styles.backButton}>
                 <Text style={styles.backIcon}>←</Text>
             </TouchableOpacity>
             <Text style={styles.headerTitle}>{issueKey}</Text>
-            <View style={styles.placeholder} />
+            <TouchableOpacity onPress={handleShare} style={styles.shareButton}>
+                <Text style={styles.shareIcon}>📤</Text>
+            </TouchableOpacity>
         </LinearGradient>
     );
 }
@@ -43,5 +82,12 @@ const styles = StyleSheet.create({
     },
     placeholder: {
         width: 38,
+    },
+    shareButton: {
+        padding: 5,
+    },
+    shareIcon: {
+        fontSize: 24,
+        color: '#fff',
     },
 });

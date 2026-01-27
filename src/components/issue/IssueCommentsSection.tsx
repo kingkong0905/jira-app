@@ -10,8 +10,11 @@ import {
     ActivityIndicator,
     Linking,
     Platform,
+    Share,
 } from 'react-native';
 import { linkifyText } from '../../utils/linkify';
+import { StorageService } from '../../services/storage';
+import { jiraApi } from '../../services/jiraApi';
 
 interface JiraUser {
     accountId: string;
@@ -39,6 +42,7 @@ interface JiraAttachment {
 }
 
 interface IssueCommentsSectionProps {
+    issueKey: string;
     comments: JiraComment[];
     currentUser: JiraUser | null;
     attachments?: JiraAttachment[];
@@ -80,6 +84,7 @@ interface IssueCommentsSectionProps {
 }
 
 export default function IssueCommentsSection({
+    issueKey,
     comments,
     currentUser,
     attachments = [],
@@ -113,6 +118,8 @@ export default function IssueCommentsSection({
     onMentionPress,
 }: IssueCommentsSectionProps) {
     const [loadingAttachments, setLoadingAttachments] = useState<Record<string, boolean>>({});
+    const [fetchedAttachments, setFetchedAttachments] = useState<Record<string, JiraAttachment>>({});
+    const [loadingMediaAttachments, setLoadingMediaAttachments] = useState<Record<string, boolean>>({});
     const commentInputRef = useRef<TextInput>(null);
     const editCommentInputRef = useRef<TextInput>(null);
 
@@ -218,24 +225,117 @@ export default function IssueCommentsSection({
                                             } else if (item.type === 'mediaInline') {
                                                 // Handle inline media attachments (like file icons in comments)
                                                 const mediaId = item.attrs?.id;
+                                                const mediaUrl = item.attrs?.url;
+                                                const mediaCollection = item.attrs?.collection;
                                                 const mediaType = item.attrs?.type || 'file';
+                                                const altText = item.attrs?.alt || '';
 
-                                                // Try to find attachment by ID first, but this usually won't work
-                                                // because mediaInline uses UUIDs while attachments have numeric IDs
-                                                let attachment = attachments?.find((a: any) => a.id === mediaId);
+                                                // Try to find attachment by ID first
+                                                let attachment = attachments?.find((a: any) => {
+                                                    return String(a.id) === String(mediaId) ||
+                                                        (altText && a.filename === altText) ||
+                                                        (altText && a.filename && a.filename.includes(altText));
+                                                });
 
-                                                // If not found, create a generic placeholder
-                                                // The actual file should be accessible via the issue's attachments
+                                                // If not found in issue attachments, check fetched attachments cache
                                                 if (!attachment && mediaId) {
+                                                    attachment = fetchedAttachments[mediaId];
+                                                }
+
+                                                // Show loading state if currently fetching
+                                                if (loadingMediaAttachments[mediaId]) {
+                                                    return (
+                                                        <View key={itemIndex} style={styles.inlineAttachmentButton}>
+                                                            <ActivityIndicator size="small" color="#0052CC" />
+                                                            <Text style={styles.inlineAttachmentText}>
+                                                                Loading...
+                                                            </Text>
+                                                        </View>
+                                                    );
+                                                }
+
+                                                // If still not found and we have a numeric mediaId (not UUID), try API
+                                                // mediaId from mediaInline can be UUID or numeric ID
+                                                const isNumericId = mediaId && /^\d+$/.test(String(mediaId));
+                                                if (!attachment && mediaId && isNumericId && !loadingMediaAttachments[mediaId]) {
+                                                    // Start loading
+                                                    setLoadingMediaAttachments(prev => ({ ...prev, [mediaId]: true }));
+
+                                                    // Fetch attachment details from API using numeric ID
+                                                    jiraApi.getAttachmentById(mediaId)
+                                                        .then((fetchedAttachment) => {
+                                                            if (fetchedAttachment) {
+                                                                setFetchedAttachments(prev => ({
+                                                                    ...prev,
+                                                                    [mediaId]: fetchedAttachment,
+                                                                }));
+                                                            }
+                                                        })
+                                                        .catch((error) => {
+                                                            console.error('Error fetching attachment by ID:', error);
+                                                            // If API fails, try to construct from available data
+                                                            if (mediaUrl || altText) {
+                                                                const constructedAttachment: JiraAttachment = {
+                                                                    id: mediaId,
+                                                                    filename: altText || 'File Attachment',
+                                                                    mimeType: mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream',
+                                                                    content: mediaUrl || '',
+                                                                };
+                                                                setFetchedAttachments(prev => ({
+                                                                    ...prev,
+                                                                    [mediaId]: constructedAttachment,
+                                                                }));
+                                                            }
+                                                        })
+                                                        .finally(() => {
+                                                            setLoadingMediaAttachments(prev => {
+                                                                const updated = { ...prev };
+                                                                delete updated[mediaId];
+                                                                return updated;
+                                                            });
+                                                        });
+
+                                                    // Return loading state while fetching
+                                                    return (
+                                                        <View key={itemIndex} style={styles.inlineAttachmentButton}>
+                                                            <ActivityIndicator size="small" color="#0052CC" />
+                                                            <Text style={styles.inlineAttachmentText}>
+                                                                Loading...
+                                                            </Text>
+                                                        </View>
+                                                    );
+                                                }
+
+                                                // If not found and we have mediaUrl or altText, construct attachment from attrs
+                                                if (!attachment && (mediaUrl || altText)) {
+                                                    // Determine mimeType from filename or type
+                                                    let mimeType = 'application/octet-stream';
+                                                    if (mediaType === 'image') {
+                                                        mimeType = 'image/jpeg';
+                                                    } else if (altText) {
+                                                        if (altText.endsWith('.pdf')) {
+                                                            mimeType = 'application/pdf';
+                                                        } else if (altText.match(/\.(jpg|jpeg)$/i)) {
+                                                            mimeType = 'image/jpeg';
+                                                        } else if (altText.match(/\.png$/i)) {
+                                                            mimeType = 'image/png';
+                                                        } else if (altText.match(/\.gif$/i)) {
+                                                            mimeType = 'image/gif';
+                                                        } else if (altText.match(/\.webp$/i)) {
+                                                            mimeType = 'image/webp';
+                                                        }
+                                                    }
+
                                                     attachment = {
-                                                        id: mediaId,
-                                                        filename: 'File Attachment',
-                                                        mimeType: 'application/octet-stream',
-                                                        content: '', // Empty - will need special handling
+                                                        id: mediaId || `media-${itemIndex}`,
+                                                        filename: altText || 'File Attachment',
+                                                        mimeType: mimeType,
+                                                        content: mediaUrl || '',
                                                     };
                                                 }
 
-                                                if (attachment) {
+                                                // Render attachment if found
+                                                if (attachment && attachment.content) {
                                                     return (
                                                         <TouchableOpacity
                                                             key={itemIndex}
@@ -339,14 +439,14 @@ export default function IssueCommentsSection({
                                     } else if (altText.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
                                         mimeType = 'image/jpeg';
                                     }
-                                    
+
                                     // Construct content URL - if mediaUrl is relative, it should be absolute from Jira
                                     // If mediaUrl is empty but we have mediaId, we can't construct URL, so skip
                                     let contentUrl = mediaUrl || '';
-                                    
+
                                     // If mediaUrl is relative (starts with /), we'd need base URL to construct full URL
                                     // For now, use mediaUrl as-is since Jira typically provides full URLs
-                                    
+
                                     attachment = {
                                         id: mediaId || `temp-${Date.now()}`,
                                         filename: altText || 'attachment',
@@ -359,18 +459,18 @@ export default function IssueCommentsSection({
                                 if (attachment) {
                                     // Get content from attachment object - use 'as any' to access all properties
                                     const attachmentAny = attachment as any;
-                                    
+
                                     // Try multiple ways to get the content URL
-                                    let contentUrl = attachmentAny.content 
-                                        || (attachmentAny as any).content 
+                                    let contentUrl = attachmentAny.content
+                                        || (attachmentAny as any).content
                                         || attachment.content;
-                                    
+
                                     // If attachment from array doesn't have content, try to construct it
                                     if (!contentUrl || typeof contentUrl !== 'string' || contentUrl.trim() === '') {
                                         // Try mediaUrl first
                                         if (mediaUrl) {
                                             contentUrl = mediaUrl;
-                                        } 
+                                        }
                                         // If attachment has a 'self' property, construct content URL from it
                                         // Jira API v3: self is /rest/api/3/attachment/{id}, content is /rest/api/3/attachment/content/{id}
                                         else if (attachmentAny.self && typeof attachmentAny.self === 'string') {
@@ -381,7 +481,7 @@ export default function IssueCommentsSection({
                                             contentUrl = selfUrl.replace(/\/attachment\/(\d+)$/, '/attachment/content/$1');
                                         }
                                     }
-                                    
+
                                     // Ensure content is set on attachment object for preview
                                     if (contentUrl && typeof contentUrl === 'string' && contentUrl.trim() !== '') {
                                         // Set on both typed and untyped to ensure it's accessible
@@ -400,7 +500,7 @@ export default function IssueCommentsSection({
                                         });
                                         return null;
                                     }
-                                    
+
                                     const isImage = attachment.mimeType.startsWith('image/');
                                     const isVideo = attachment.mimeType.startsWith('video/');
                                     const isPdf = attachment.mimeType === 'application/pdf';
@@ -514,6 +614,43 @@ export default function IssueCommentsSection({
 
     const commentTree = useMemo(() => buildCommentTree(comments), [comments]);
 
+    // Share comment URL handler
+    const handleShareComment = async (commentId: string) => {
+        try {
+            const config = await StorageService.getConfig();
+            if (!config) {
+                return;
+            }
+
+            const commentUrl = `${config.jiraUrl}/browse/${issueKey}?focusedCommentId=${commentId}`;
+
+            if (Platform.OS === 'web') {
+                // For web, copy to clipboard
+                if (navigator.clipboard) {
+                    await navigator.clipboard.writeText(commentUrl);
+                    alert('Comment URL copied to clipboard!');
+                } else {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = commentUrl;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    alert('Comment URL copied to clipboard!');
+                }
+            } else {
+                // For mobile, use native share
+                await Share.share({
+                    message: commentUrl,
+                    url: commentUrl,
+                });
+            }
+        } catch (error) {
+            console.error('Error sharing comment:', error);
+        }
+    };
+
     // Render comment with its replies recursively
     const renderComment = (
         comment: JiraComment & { replies: JiraComment[] },
@@ -553,7 +690,7 @@ export default function IssueCommentsSection({
                                             <Text style={styles.mentionLoadingText}>Loading...</Text>
                                         </View>
                                     ) : editMentionSuggestions.length > 0 ? (
-                                        <ScrollView 
+                                        <ScrollView
                                             style={styles.mentionSuggestionsList}
                                             contentContainerStyle={styles.mentionSuggestionsContent}
                                             keyboardShouldPersistTaps="handled"
@@ -639,6 +776,12 @@ export default function IssueCommentsSection({
                                 >
                                     <Text style={styles.commentActionText}>↩️ Reply</Text>
                                 </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => handleShareComment(comment.id)}
+                                    style={styles.commentActionButton}
+                                >
+                                    <Text style={styles.commentActionText}>📤 Share</Text>
+                                </TouchableOpacity>
                                 {currentUser && comment.author.accountId === currentUser.accountId && (
                                     <>
                                         <TouchableOpacity
@@ -706,7 +849,7 @@ export default function IssueCommentsSection({
                                 <Text style={styles.mentionLoadingText}>Loading...</Text>
                             </View>
                         ) : mentionSuggestions.length > 0 ? (
-                            <ScrollView 
+                            <ScrollView
                                 style={styles.mentionSuggestionsList}
                                 contentContainerStyle={styles.mentionSuggestionsContent}
                                 keyboardShouldPersistTaps="handled"

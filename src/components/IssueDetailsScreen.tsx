@@ -432,21 +432,21 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
 
     // ==================== USER SEARCH FOR ASSIGNEE ====================
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    
+
     const handleSearchUsers = useCallback(async (query: string) => {
         setSearchQuery(query);
-        
+
         // Clear previous timeout
         if (searchTimeoutRef.current) {
             clearTimeout(searchTimeoutRef.current);
         }
-        
+
         // If query is empty, show all users
         if (!query.trim()) {
             setAssignableUsers(allUsers);
             return;
         }
-        
+
         // Debounce API call - wait 300ms after user stops typing
         searchTimeoutRef.current = setTimeout(async () => {
             try {
@@ -467,7 +467,7 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
             }
         }, 300);
     }, [issueKey, allUsers, setSearchQuery, setAssignableUsers, setLoadingUsers]);
-    
+
     // Cleanup timeout on unmount
     useEffect(() => {
         return () => {
@@ -741,7 +741,7 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
                 if (node.attrs?.url) {
                     return `<img src="${node.attrs.url}" alt="Embedded media" style="max-width: 100%;" />`;
                 }
-                return '[Media]';
+                return '';
             }
             if (node.type === 'mediaGroup') {
                 // Handle media groups
@@ -773,7 +773,7 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
         } else if (description && description.content) {
             text = description.content.map((node: any) => extractTextWithStructure(node)).join('');
         } else {
-            text = '<p>No description</p>';
+            text = '';
         }
 
         // Split text into paragraphs for attachment distribution
@@ -903,7 +903,7 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
             // accountId might be in format "712020:9bd1359a-c602-4de4-a7a1-1200669092ad"
             // The API expects the full accountId, so we use it as-is
             const userInfo = await jiraApi.getUserByAccountId(accountId);
-            
+
             if (userInfo) {
                 setSelectedUser(userInfo);
             } else {
@@ -985,7 +985,7 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
                 <IssueHeader issueKey={issueKey} onBack={onBack} />
 
                 {/* Scrollable Content */}
-                <ScrollView 
+                <ScrollView
                     style={styles.scrollView}
                     contentContainerStyle={styles.scrollContent}
                     showsVerticalScrollIndicator={false}
@@ -1065,6 +1065,7 @@ export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue
 
                     {/* Comments */}
                     <IssueCommentsSection
+                        issueKey={issue.key}
                         comments={comments}
                         currentUser={currentUser}
                         attachments={issue.fields.attachment}

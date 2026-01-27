@@ -665,6 +665,42 @@ class JiraApiService {
         }
     }
 
+    async getAttachmentById(attachmentId: string): Promise<{
+        id: string;
+        filename: string;
+        mimeType: string;
+        content: string;
+        size?: number;
+        thumbnail?: string;
+    } | null> {
+        try {
+            const api = this.getAxiosInstance();
+            const response = await api.get(`/rest/api/3/attachment/${attachmentId}`);
+            const attachment = response.data;
+
+            // Construct content URL from self URL or use content URL if available
+            let contentUrl = attachment.content;
+            if (!contentUrl && attachment.self) {
+                // Convert self URL to content URL
+                // self: https://jira.example.com/rest/api/3/attachment/12345
+                // content: https://jira.example.com/rest/api/3/attachment/content/12345
+                contentUrl = attachment.self.replace(/\/attachment\/(\d+)$/, '/attachment/content/$1');
+            }
+
+            return {
+                id: attachment.id,
+                filename: attachment.filename,
+                mimeType: attachment.mimeType,
+                content: contentUrl || '',
+                size: attachment.size,
+                thumbnail: attachment.thumbnail,
+            };
+        } catch (error) {
+            console.error('Error fetching attachment by ID:', error);
+            return null;
+        }
+    }
+
     async fetchAttachment(url: string): Promise<string> {
         try {
             const api = this.getAxiosInstance();
