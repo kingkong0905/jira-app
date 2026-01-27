@@ -343,29 +343,121 @@ export default function IssueCommentsSection({
                                 let attachment = attachments?.find(
                                     (a: any) => {
                                         console.log('Checking attachment:', a.id, a.filename);
-                                        return (mediaId && a.id === mediaId) ||
-                                            a.filename === altText ||
-                                            a.filename.includes(altText) ||
-                                            altText.includes(a.filename);
+                                        return (mediaId && String(a.id) === String(mediaId)) ||
+                                            (altText && a.filename === altText) ||
+                                            (altText && a.filename && a.filename.includes(altText)) ||
+                                            (altText && a.filename && altText.includes(a.filename));
                                     }
                                 );
 
                                 console.log('Found attachment:', attachment ? attachment.id : 'NOT FOUND');
+                                if (attachment) {
+                                    const attachmentAny = attachment as any;
+                                    console.log('Attachment properties:', {
+                                        id: attachment.id,
+                                        filename: attachment.filename,
+                                        mimeType: attachment.mimeType,
+                                        contentValue: attachmentAny.content,
+                                        contentType: typeof attachmentAny.content,
+                                        hasContent: !!attachmentAny.content,
+                                        hasSelf: !!attachmentAny.self,
+                                        selfValue: attachmentAny.self,
+                                        allKeys: Object.keys(attachmentAny),
+                                        fullAttachment: attachmentAny
+                                    });
+                                }
 
                                 // If not found in attachments array, create a temporary attachment object from media node
                                 if (!attachment && (mediaId || mediaUrl)) {
                                     console.log('Creating temporary attachment');
+                                    // Determine mimeType from filename extension
+                                    let mimeType = 'application/octet-stream';
+                                    if (altText.endsWith('.pdf')) {
+                                        mimeType = 'application/pdf';
+                                    } else if (altText.match(/\.(jpg|jpeg)$/i)) {
+                                        mimeType = 'image/jpeg';
+                                    } else if (altText.match(/\.png$/i)) {
+                                        mimeType = 'image/png';
+                                    } else if (altText.match(/\.gif$/i)) {
+                                        mimeType = 'image/gif';
+                                    } else if (altText.match(/\.webp$/i)) {
+                                        mimeType = 'image/webp';
+                                    } else if (altText.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+                                        mimeType = 'image/jpeg';
+                                    }
+                                    
+                                    // Construct content URL - if mediaUrl is relative, it should be absolute from Jira
+                                    // If mediaUrl is empty but we have mediaId, we can't construct URL, so skip
+                                    let contentUrl = mediaUrl || '';
+                                    
+                                    // If mediaUrl is relative (starts with /), we'd need base URL to construct full URL
+                                    // For now, use mediaUrl as-is since Jira typically provides full URLs
+                                    
                                     attachment = {
                                         id: mediaId || `temp-${Date.now()}`,
                                         filename: altText || 'attachment',
-                                        mimeType: altText.endsWith('.pdf') ? 'application/pdf' :
-                                            altText.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'image/jpeg' : 'application/octet-stream',
-                                        content: mediaUrl || '',
+                                        mimeType: mimeType,
+                                        content: contentUrl,
                                     };
                                     console.log('Temp attachment created:', attachment);
                                 }
 
+                                // Only render if attachment has content URL
                                 if (attachment) {
+                                    // Get content from attachment object - use 'as any' to access all properties
+                                    const attachmentAny = attachment as any;
+                                    
+                                    // Try multiple ways to get the content URL
+                                    let contentUrl = attachmentAny.content 
+                                        || (attachmentAny as any).content 
+                                        || attachment.content;
+                                    
+                                    console.log('Content URL check:', {
+                                        direct: attachmentAny.content,
+                                        typed: attachment.content,
+                                        final: contentUrl,
+                                        isValid: contentUrl && typeof contentUrl === 'string' && contentUrl.trim() !== ''
+                                    });
+                                    
+                                    // If attachment from array doesn't have content, try to construct it
+                                    if (!contentUrl || typeof contentUrl !== 'string' || contentUrl.trim() === '') {
+                                        // Try mediaUrl first
+                                        if (mediaUrl) {
+                                            contentUrl = mediaUrl;
+                                            console.log('Using mediaUrl as content URL');
+                                        } 
+                                        // If attachment has a 'self' property, construct content URL from it
+                                        // Jira API v3: self is /rest/api/3/attachment/{id}, content is /rest/api/3/attachment/content/{id}
+                                        else if (attachmentAny.self && typeof attachmentAny.self === 'string') {
+                                            const selfUrl = attachmentAny.self;
+                                            // Convert self URL to content URL
+                                            // self: https://jira.example.com/rest/api/3/attachment/12345
+                                            // content: https://jira.example.com/rest/api/3/attachment/content/12345
+                                            contentUrl = selfUrl.replace(/\/attachment\/(\d+)$/, '/attachment/content/$1');
+                                            console.log('Constructed content URL from self:', contentUrl);
+                                        }
+                                    }
+                                    
+                                    // Ensure content is set on attachment object for preview
+                                    if (contentUrl && typeof contentUrl === 'string' && contentUrl.trim() !== '') {
+                                        // Set on both typed and untyped to ensure it's accessible
+                                        attachment.content = contentUrl;
+                                        attachmentAny.content = contentUrl;
+                                        console.log('Content URL set successfully:', contentUrl);
+                                    } else {
+                                        // Log what we have for debugging
+                                        console.warn('Attachment has no valid content URL after all attempts:', {
+                                            id: attachment.id,
+                                            filename: attachment.filename,
+                                            originalContent: attachmentAny.content,
+                                            contentType: typeof attachmentAny.content,
+                                            hasSelf: !!attachmentAny.self,
+                                            selfUrl: attachmentAny.self,
+                                            mediaUrl: mediaUrl,
+                                        });
+                                        return null;
+                                    }
+                                    
                                     const isImage = attachment.mimeType.startsWith('image/');
                                     const isVideo = attachment.mimeType.startsWith('video/');
                                     const isPdf = attachment.mimeType === 'application/pdf';
@@ -373,7 +465,13 @@ export default function IssueCommentsSection({
                                     return (
                                         <TouchableOpacity
                                             key={nodeIndex}
-                                            onPress={() => onAttachmentPress(attachment)}
+                                            onPress={() => {
+                                                if (attachment && attachment.content) {
+                                                    onAttachmentPress(attachment);
+                                                } else {
+                                                    console.warn('Cannot preview attachment: missing content URL', attachment);
+                                                }
+                                            }}
                                             style={styles.commentAttachmentContainer}
                                         >
                                             {isImage ? (

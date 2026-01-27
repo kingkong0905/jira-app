@@ -4,4 +4,5 @@ export { default as StatusBadge, getStatusColor } from './StatusBadge';
 export { default as PickerModal } from './PickerModal';
 export { default as UserAvatar } from './UserAvatar';
 export { default as AttachmentPreviewModal } from './AttachmentPreviewModal';
+export { default as UserInfoModal } from './UserInfoModal';
 export type { PickerItem } from './PickerModal';

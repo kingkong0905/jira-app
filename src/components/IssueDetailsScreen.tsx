@@ -25,7 +25,7 @@ import {
     IssueCommentsSection,
 } from './issue';
 
-import { AttachmentPreviewModal } from './shared';
+import { AttachmentPreviewModal, UserInfoModal } from './shared';
 
 // Modals
 import {
@@ -166,6 +166,11 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     // ==================== ATTACHMENT PREVIEW ====================
     const [previewAttachment, setPreviewAttachment] = useState<any>(null);
     const [loadedImageData, setLoadedImageData] = useState<Record<string, string>>({});
+
+    // ==================== USER INFO MODAL ====================
+    const [showUserInfoModal, setShowUserInfoModal] = useState(false);
+    const [selectedUser, setSelectedUser] = useState<any>(null);
+    const [loadingUserInfo, setLoadingUserInfo] = useState(false);
 
     const fetchImageWithAuth = async (url: string, attachmentId: string, mimeType: string): Promise<string> => {
         if (loadedImageData[attachmentId]) return loadedImageData[attachmentId];
@@ -796,7 +801,39 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     // ==================== USER MENTION HANDLER ====================
     const handleMentionPress = async (accountId: string, displayName: string) => {
         console.log('Mention pressed:', displayName, accountId);
-        // Could implement user info popup here
+        
+        // Show loading state
+        setLoadingUserInfo(true);
+        setShowUserInfoModal(true);
+        setSelectedUser(null);
+
+        try {
+            // Fetch user details from Jira API
+            // accountId might be in format "712020:9bd1359a-c602-4de4-a7a1-1200669092ad"
+            // The API expects the full accountId, so we use it as-is
+            const userInfo = await jiraApi.getUserByAccountId(accountId);
+            
+            if (userInfo) {
+                setSelectedUser(userInfo);
+            } else {
+                // If API call fails, create a basic user object with available info
+                setSelectedUser({
+                    accountId,
+                    displayName,
+                    emailAddress: undefined,
+                });
+            }
+        } catch (error) {
+            console.error('Error fetching user info:', error);
+            // Show basic info even if API call fails
+            setSelectedUser({
+                accountId,
+                displayName,
+                emailAddress: undefined,
+            });
+        } finally {
+            setLoadingUserInfo(false);
+        }
     };
 
     // ==================== COMMENT HANDLERS ====================
@@ -932,6 +969,17 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                 loadedImageData={loadedImageData}
                 authHeaders={authHeaders}
                 onClose={() => setPreviewAttachment(null)}
+            />
+
+            {/* User Info Modal */}
+            <UserInfoModal
+                visible={showUserInfoModal}
+                user={selectedUser}
+                loading={loadingUserInfo}
+                onClose={() => {
+                    setShowUserInfoModal(false);
+                    setSelectedUser(null);
+                }}
             />
 
             {/* Assignee Picker Modal */}
