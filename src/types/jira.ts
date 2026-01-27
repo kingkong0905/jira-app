@@ -52,6 +52,28 @@ export interface JiraIssue {
             state: string;
         };
         attachment?: JiraAttachment[];
+        parent?: {
+            id: string;
+            key: string;
+            fields?: {
+                summary: string;
+                status: {
+                    name: string;
+                    statusCategory: {
+                        key?: string;
+                        colorName: string;
+                    };
+                };
+                assignee?: {
+                    accountId: string;
+                    displayName: string;
+                    emailAddress?: string;
+                    avatarUrls: {
+                        '48x48': string;
+                    };
+                };
+            };
+        };
     };
 }
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -9,6 +9,8 @@ import {
     ScrollView,
     ActivityIndicator,
     Image,
+    Platform,
+    KeyboardAvoidingView,
 } from 'react-native';
 import { UserAvatar } from '../shared';
 
@@ -42,9 +44,29 @@ export default function AssigneePickerModal({
 }: AssigneePickerModalProps) {
     const [searchQuery, setSearchQuery] = useState('');
 
+    // Clear search when modal closes
+    useEffect(() => {
+        if (!visible) {
+            setSearchQuery('');
+            onSearch(''); // Clear search in parent component
+        }
+    }, [visible, onSearch]);
+
     const handleSearch = (query: string) => {
         setSearchQuery(query);
         onSearch(query);
+    };
+
+    const handleSelect = (accountId: string | null) => {
+        setSearchQuery(''); // Clear search input
+        onSearch(''); // Clear search in parent component
+        onSelect(accountId);
+    };
+
+    const handleClose = () => {
+        setSearchQuery(''); // Clear search input
+        onSearch(''); // Clear search in parent component
+        onClose();
     };
 
     return (
@@ -52,13 +74,22 @@ export default function AssigneePickerModal({
             visible={visible}
             transparent={true}
             animationType="slide"
-            onRequestClose={onClose}
+            onRequestClose={handleClose}
         >
-            <View style={styles.modalOverlay}>
-                <View style={styles.modalContent}>
+            <TouchableOpacity 
+                style={styles.modalOverlay} 
+                activeOpacity={1} 
+                onPress={handleClose}
+            >
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={styles.keyboardAvoidingView}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+                >
+                    <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
                     <View style={styles.modalHeader}>
                         <Text style={styles.modalTitle}>Change Assignee</Text>
-                        <TouchableOpacity onPress={onClose} style={styles.modalCloseButton}>
+                        <TouchableOpacity onPress={handleClose} style={styles.modalCloseButton}>
                             <Text style={styles.modalCloseText}>✕</Text>
                         </TouchableOpacity>
                     </View>
@@ -77,11 +108,16 @@ export default function AssigneePickerModal({
                             <ActivityIndicator size="large" color="#0052CC" />
                         </View>
                     ) : (
-                        <ScrollView style={styles.list}>
+                        <ScrollView 
+                            style={styles.list}
+                            keyboardShouldPersistTaps="handled"
+                            nestedScrollEnabled={true}
+                            contentContainerStyle={styles.listContent}
+                        >
                             {/* Unassign option */}
                             <TouchableOpacity
                                 style={styles.item}
-                                onPress={() => onSelect(null)}
+                                onPress={() => handleSelect(null)}
                                 disabled={assigning}
                             >
                                 <View style={styles.itemContent}>
@@ -102,7 +138,7 @@ export default function AssigneePickerModal({
                                     <TouchableOpacity
                                         key={user.accountId}
                                         style={styles.item}
-                                        onPress={() => onSelect(user.accountId)}
+                                        onPress={() => handleSelect(user.accountId)}
                                         disabled={assigning}
                                     >
                                         <View style={styles.itemContent}>
@@ -133,8 +169,9 @@ export default function AssigneePickerModal({
                             })}
                         </ScrollView>
                     )}
-                </View>
-            </View>
+                    </View>
+                </KeyboardAvoidingView>
+            </TouchableOpacity>
         </Modal>
     );
 }
@@ -145,12 +182,18 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
         justifyContent: 'flex-end',
     },
+    keyboardAvoidingView: {
+        flex: 1,
+        justifyContent: 'flex-end',
+    },
     modalContent: {
         backgroundColor: '#fff',
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-        maxHeight: '80%',
-        paddingBottom: 20,
+        maxHeight: '90%',
+        paddingBottom: Platform.OS === 'ios' ? 20 : 40,
+        flexShrink: 1,
+        minHeight: 300,
     },
     modalHeader: {
         flexDirection: 'row',
@@ -191,7 +234,12 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     list: {
-        maxHeight: 400,
+        flex: 1,
+        maxHeight: 500,
+    },
+    listContent: {
+        paddingBottom: 20,
+        flexGrow: 1,
     },
     item: {
         flexDirection: 'row',

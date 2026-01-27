@@ -5,7 +5,8 @@
  * Reduced from 5,182 lines to ~350 lines (93% reduction)
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { JiraIssue } from '../types/jira';
 import { View, Text, StyleSheet, ScrollView, Platform, KeyboardAvoidingView, Modal, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -22,8 +23,10 @@ import {
     IssueSummaryCard,
     IssueDetailsFields,
     IssueDescriptionCard,
+    IssueSubtasksCard,
     IssueCommentsSection,
 } from './issue';
+import IssueParentCard from './issue/IssueParentCard';
 
 import { AttachmentPreviewModal, UserInfoModal } from './shared';
 
@@ -43,9 +46,10 @@ import { jiraApi } from '../services/jiraApi';
 interface IssueDetailsScreenProps {
     issueKey: string;
     onBack: () => void;
+    onNavigateToIssue?: (issueKey: string) => void;
 }
 
-export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScreenProps) {
+export default function IssueDetailsScreen({ issueKey, onBack, onNavigateToIssue }: IssueDetailsScreenProps) {
     const toast = useToast();
 
     // ==================== DATA LOADING ====================
@@ -58,6 +62,61 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
         refreshIssue,
         refreshComments,
     } = useIssueData(issueKey);
+
+    // ==================== SUBTASKS ====================
+    const [subtasks, setSubtasks] = useState<JiraIssue[]>([]);
+    const [loadingSubtasks, setLoadingSubtasks] = useState(false);
+
+    // ==================== PARENT TASK ====================
+    const [parentTask, setParentTask] = useState<JiraIssue | null>(null);
+    const [loadingParent, setLoadingParent] = useState(false);
+
+    useEffect(() => {
+        const loadSubtasks = async () => {
+            if (!issueKey || Platform.OS === 'web') {
+                setLoadingSubtasks(false);
+                return;
+            }
+
+            try {
+                setLoadingSubtasks(true);
+                const subtasksData = await jiraApi.getSubtasks(issueKey);
+                setSubtasks(subtasksData);
+            } catch (error) {
+                console.error('Error loading subtasks:', error);
+            } finally {
+                setLoadingSubtasks(false);
+            }
+        };
+
+        loadSubtasks();
+    }, [issueKey]);
+
+    useEffect(() => {
+        const loadParentTask = async () => {
+            if (!issue?.fields?.parent?.key || Platform.OS === 'web') {
+                setLoadingParent(false);
+                setParentTask(null);
+                return;
+            }
+
+            try {
+                setLoadingParent(true);
+                const parentKey = issue.fields.parent.key;
+                const parentData = await jiraApi.getIssueDetails(parentKey);
+                setParentTask(parentData);
+            } catch (error) {
+                console.error('Error loading parent task:', error);
+                setParentTask(null);
+            } finally {
+                setLoadingParent(false);
+            }
+        };
+
+        if (issue) {
+            loadParentTask();
+        }
+    }, [issue?.fields?.parent?.key]);
 
     // ==================== COMMENT OPERATIONS ====================
     const {
@@ -94,6 +153,7 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
         setShowAssigneePicker,
         assignableUsers,
         loadingUsers,
+        setLoadingUsers,
         assigningUser,
         setSearchQuery,
         allUsers,
@@ -363,18 +423,51 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
     };
 
     // ==================== USER SEARCH FOR ASSIGNEE ====================
-    const handleSearchUsers = (query: string) => {
+    const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    
+    const handleSearchUsers = useCallback(async (query: string) => {
         setSearchQuery(query);
+        
+        // Clear previous timeout
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+        }
+        
+        // If query is empty, show all users
         if (!query.trim()) {
             setAssignableUsers(allUsers);
-        } else {
-            const filtered = allUsers.filter((user: any) =>
-                user.displayName.toLowerCase().includes(query.toLowerCase()) ||
-                user.emailAddress?.toLowerCase().includes(query.toLowerCase())
-            );
-            setAssignableUsers(filtered);
+            return;
         }
-    };
+        
+        // Debounce API call - wait 300ms after user stops typing
+        searchTimeoutRef.current = setTimeout(async () => {
+            try {
+                setLoadingUsers(true);
+                // Call API to search for users
+                const users = await jiraApi.getAssignableUsers(issueKey, query.trim());
+                setAssignableUsers(users);
+            } catch (error) {
+                console.error('Error searching users:', error);
+                // Fallback to local filter if API fails
+                const filtered = allUsers.filter((user: any) =>
+                    user.displayName.toLowerCase().includes(query.toLowerCase()) ||
+                    user.emailAddress?.toLowerCase().includes(query.toLowerCase())
+                );
+                setAssignableUsers(filtered);
+            } finally {
+                setLoadingUsers(false);
+            }
+        }, 300);
+    }, [issueKey, allUsers, setSearchQuery, setAssignableUsers, setLoadingUsers]);
+    
+    // Cleanup timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current);
+            }
+        };
+    }, []);
 
     // ==================== SPRINT PICKER HANDLERS ====================
     const openSprintPicker = async () => {
@@ -880,7 +973,8 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
 
                 {/* Scrollable Content */}
                 <ScrollView 
-                    style={styles.scrollView} 
+                    style={styles.scrollView}
+                    contentContainerStyle={styles.scrollContent}
                     showsVerticalScrollIndicator={false}
                     scrollEnabled={!showMentionSuggestions && !showEditMentionSuggestions}
                 >
@@ -919,6 +1013,28 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                         onAttachmentPress={handleAttachmentPress}
                         onEditPress={Platform.OS !== 'web' ? handleDescriptionEdit : undefined}
                         canEdit={Platform.OS !== 'web'}
+                    />
+
+                    {/* Parent Task */}
+                    <IssueParentCard
+                        parent={parentTask}
+                        loading={loadingParent}
+                        onParentPress={(parentKey) => {
+                            if (onNavigateToIssue) {
+                                onNavigateToIssue(parentKey);
+                            }
+                        }}
+                    />
+
+                    {/* Subtasks */}
+                    <IssueSubtasksCard
+                        subtasks={subtasks}
+                        loading={loadingSubtasks}
+                        onSubtaskPress={(subtaskKey) => {
+                            if (onNavigateToIssue) {
+                                onNavigateToIssue(subtaskKey);
+                            }
+                        }}
                     />
 
                     {/* Comments */}
@@ -989,7 +1105,12 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                 assignableUsers={assignableUsers}
                 loading={loadingUsers}
                 assigning={assigningUser}
-                onClose={() => setShowAssigneePicker(false)}
+                onClose={() => {
+                    setShowAssigneePicker(false);
+                    // Reset to all users when closing
+                    setAssignableUsers(allUsers);
+                    setSearchQuery('');
+                }}
                 onSelect={assignUser}
                 onSearch={handleSearchUsers}
             />
@@ -1399,6 +1520,9 @@ const styles = StyleSheet.create({
     },
     scrollView: {
         flex: 1,
+    },
+    scrollContent: {
+        paddingBottom: 16,
     },
     loadingContainer: {
         flex: 1,

@@ -711,6 +711,9 @@ export default function HomeScreen({ onOpenSettings }: HomeScreenProps) {
             <IssueDetailsScreen
                 issueKey={selectedIssueKey}
                 onBack={handleBackFromDetails}
+                onNavigateToIssue={(newIssueKey) => {
+                    setSelectedIssueKey(newIssueKey);
+                }}
             />
         );
     }

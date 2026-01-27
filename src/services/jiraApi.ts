@@ -361,7 +361,7 @@ class JiraApiService {
             const api = this.getAxiosInstance();
             const response = await api.get(`/rest/api/3/issue/${issueKey}`, {
                 params: {
-                    fields: 'summary,description,status,priority,assignee,reporter,issuetype,created,updated,duedate,comment,attachment,customfield_10016,customfield_10020',
+                    fields: 'summary,description,status,priority,assignee,reporter,issuetype,created,updated,duedate,comment,attachment,customfield_10016,customfield_10020,parent',
                 },
             });
 
@@ -618,6 +618,16 @@ class JiraApiService {
             console.error('JQL query:', jql);
             console.error('Error response:', error?.response?.data);
             return []; // Return empty array instead of throwing
+        }
+    }
+
+    async getSubtasks(issueKey: string): Promise<JiraIssue[]> {
+        try {
+            const jql = `parent = ${issueKey}`;
+            return await this.searchIssues(jql, 100);
+        } catch (error) {
+            console.error('Error fetching subtasks:', error);
+            return [];
         }
     }
 

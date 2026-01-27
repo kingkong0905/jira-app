@@ -71,6 +71,9 @@ export function useFieldUpdates(
             await jiraApi.assignIssue(issueKey, accountId);
             await refreshIssue();
             setShowAssigneePicker(false);
+            // Reset search and users list after assignment
+            setSearchQuery('');
+            setAssignableUsers(allUsers);
             onSuccess?.(accountId ? 'Assignee updated successfully' : 'Issue unassigned successfully');
         } catch (error: any) {
             console.error('Error assigning issue:', error);
@@ -78,7 +81,7 @@ export function useFieldUpdates(
         } finally {
             setAssigningUser(false);
         }
-    }, [issueKey, refreshIssue]);
+    }, [issueKey, refreshIssue, allUsers]);
 
     const openStatusPicker = useCallback(async () => {
         if (!checkWebPlatform()) return;
@@ -211,6 +214,7 @@ export function useFieldUpdates(
         setShowAssigneePicker,
         assignableUsers,
         loadingUsers,
+        setLoadingUsers,
         assigningUser,
         searchQuery,
         setSearchQuery,

@@ -9,6 +9,7 @@ import {
     Linking,
     Platform,
 } from 'react-native';
+import { linkifyText } from '../../utils/linkify';
 
 interface JiraAttachment {
     id: string;
@@ -68,6 +69,38 @@ export default function IssueDescriptionCard({
     const renderInlineContent = (content: any[], baseStyle?: any) => {
         return content.map((item: any, itemIndex: number) => {
             if (item.type === 'text') {
+                // Check for link mark first
+                const linkMark = item.marks?.find((mark: any) => mark.type === 'link');
+                
+                if (linkMark && linkMark.attrs?.href) {
+                    // Apply other formatting marks (bold, italic, etc.) to the link
+                    let linkStyle = { ...baseStyle, ...styles.linkText };
+                    if (item.marks) {
+                        item.marks.forEach((mark: any) => {
+                            if (mark.type === 'strong') {
+                                linkStyle = { ...linkStyle, fontWeight: 'bold' };
+                            } else if (mark.type === 'em') {
+                                linkStyle = { ...linkStyle, fontStyle: 'italic' };
+                            } else if (mark.type === 'code') {
+                                linkStyle = {
+                                    ...linkStyle,
+                                    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+                                    backgroundColor: '#f4f4f4',
+                                };
+                            }
+                        });
+                    }
+                    return (
+                        <Text
+                            key={itemIndex}
+                            style={linkStyle}
+                            onPress={() => Linking.openURL(linkMark.attrs.href)}
+                        >
+                            {item.text || linkMark.attrs.href}
+                        </Text>
+                    );
+                }
+                
                 // Apply formatting marks (bold, italic, etc.)
                 let textStyle = baseStyle || {};
                 if (item.marks) {
@@ -82,22 +115,15 @@ export default function IssueDescriptionCard({
                                 fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
                                 backgroundColor: '#f4f4f4',
                             };
-                        } else if (mark.type === 'link') {
-                            return (
-                                <Text
-                                    key={itemIndex}
-                                    style={[textStyle, styles.linkText]}
-                                    onPress={() => Linking.openURL(mark.attrs?.href)}
-                                >
-                                    {item.text || mark.attrs?.href}
-                                </Text>
-                            );
                         }
                     });
                 }
+                
+                // Use linkifyText to detect and make plain URLs clickable
+                const textContent = item.text || '';
                 return (
                     <Text key={itemIndex} style={textStyle}>
-                        {item.text || ''}
+                        {linkifyText(textContent, { linkStyle: styles.linkText, textStyle })}
                     </Text>
                 );
             } else if (item.type === 'mention') {
@@ -359,7 +385,9 @@ export default function IssueDescriptionCard({
                     </TouchableOpacity>
                 )}
             </View>
-            {renderContent()}
+            <View style={styles.contentContainer}>
+                {renderContent()}
+            </View>
         </View>
     );
 }
@@ -367,9 +395,10 @@ export default function IssueDescriptionCard({
 const styles = StyleSheet.create({
     container: {
         backgroundColor: '#fff',
-        padding: 16,
+        padding: 20,
         paddingTop: 24,
         marginBottom: 8,
+        marginHorizontal: 16,
         borderRadius: 8,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
@@ -385,8 +414,14 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 16,
-        fontWeight: '700',
+        fontWeight: '600',
         color: '#172B4D',
+    },
+    contentContainer: {
+        paddingLeft: 8,
+        paddingRight: 8,
+        paddingTop: 8,
+        paddingBottom: 8,
     },
     editButton: {
         paddingHorizontal: 12,
@@ -402,41 +437,43 @@ const styles = StyleSheet.create({
     description: {
         fontSize: 14,
         color: '#42526E',
-        lineHeight: 20,
+        lineHeight: 22,
+        fontWeight: '400',
     },
     descriptionParagraph: {
         fontSize: 14,
         color: '#42526E',
-        lineHeight: 20,
+        lineHeight: 22,
         marginBottom: 8,
+        fontWeight: '400',
     },
     heading1: {
         fontSize: 24,
-        fontWeight: 'bold',
+        fontWeight: '600',
         color: '#172B4D',
         marginVertical: 12,
     },
     heading2: {
         fontSize: 20,
-        fontWeight: 'bold',
+        fontWeight: '600',
         color: '#172B4D',
         marginVertical: 10,
     },
     heading3: {
         fontSize: 18,
-        fontWeight: '600',
+        fontWeight: '500',
         color: '#172B4D',
         marginVertical: 8,
     },
     heading4: {
         fontSize: 16,
-        fontWeight: '600',
+        fontWeight: '500',
         color: '#172B4D',
         marginVertical: 6,
     },
     heading5: {
         fontSize: 14,
-        fontWeight: '600',
+        fontWeight: '500',
         color: '#172B4D',
         marginVertical: 4,
     },
@@ -469,7 +506,8 @@ const styles = StyleSheet.create({
     listItemText: {
         fontSize: 14,
         color: '#42526E',
-        lineHeight: 20,
+        lineHeight: 22,
+        fontWeight: '400',
     },
     nestedList: {
         marginLeft: 20,

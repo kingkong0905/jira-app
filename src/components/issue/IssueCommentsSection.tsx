@@ -164,7 +164,7 @@ export default function IssueCommentsSection({
             console.log('Comment ID:', comment.id);
             console.log('Body structure:', JSON.stringify(comment.body, null, 2));
             return (
-                <View style={styles.commentBody}>
+                <View style={[styles.commentBody, { paddingLeft: 4, paddingRight: 4 }]}>
                     {comment.body.content.map((node: any, nodeIndex: number) => {
                         console.log('Processing node type:', node.type);
                         if (node.type === 'paragraph' && node.content) {
@@ -850,8 +850,10 @@ export default function IssueCommentsSection({
 const styles = StyleSheet.create({
     container: {
         backgroundColor: '#fff',
-        padding: 16,
+        padding: 20,
+        paddingTop: 24,
         marginBottom: 8,
+        marginHorizontal: 16,
         borderRadius: 8,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
@@ -863,7 +865,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '600',
         color: '#172B4D',
-        marginBottom: 16,
+        marginBottom: 20,
     },
     commentInputSection: {
         marginBottom: 20,
@@ -917,7 +919,7 @@ const styles = StyleSheet.create({
     },
     commentItem: {
         backgroundColor: '#F4F5F7',
-        padding: 12,
+        padding: 16,
         borderRadius: 6,
         marginBottom: 8,
     },
@@ -961,8 +963,9 @@ const styles = StyleSheet.create({
     commentBody: {
         fontSize: 14,
         color: '#42526E',
-        lineHeight: 20,
+        lineHeight: 22,
         marginBottom: 8,
+        fontWeight: '400',
     },
     paragraphContainer: {
         flexDirection: 'row',
@@ -973,8 +976,9 @@ const styles = StyleSheet.create({
     paragraphText: {
         fontSize: 14,
         color: '#42526E',
-        lineHeight: 20,
+        lineHeight: 22,
         marginBottom: 4,
+        fontWeight: '400',
     },
     linkText: {
         color: '#0052CC',
