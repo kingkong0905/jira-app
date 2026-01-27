@@ -842,7 +842,11 @@ export default function IssueDetailsScreen({ issueKey, onBack }: IssueDetailsScr
                 <IssueHeader issueKey={issueKey} onBack={onBack} />
 
                 {/* Scrollable Content */}
-                <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+                <ScrollView 
+                    style={styles.scrollView} 
+                    showsVerticalScrollIndicator={false}
+                    scrollEnabled={!showMentionSuggestions && !showEditMentionSuggestions}
+                >
                     {/* Summary Card */}
                     <IssueSummaryCard
                         issueKey={issue.key}

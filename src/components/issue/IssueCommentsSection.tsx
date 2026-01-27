@@ -512,12 +512,24 @@ export default function IssueCommentsSection({
                                             <Text style={styles.mentionLoadingText}>Loading...</Text>
                                         </View>
                                     ) : editMentionSuggestions.length > 0 ? (
-                                        <ScrollView style={styles.mentionSuggestionsList}>
+                                        <ScrollView 
+                                            style={styles.mentionSuggestionsList}
+                                            contentContainerStyle={styles.mentionSuggestionsContent}
+                                            keyboardShouldPersistTaps="handled"
+                                            nestedScrollEnabled={true}
+                                            showsVerticalScrollIndicator={true}
+                                            bounces={false}
+                                            scrollEnabled={true}
+                                            alwaysBounceVertical={false}
+                                            scrollEventThrottle={16}
+                                            removeClippedSubviews={false}
+                                        >
                                             {editMentionSuggestions.map((user) => (
                                                 <TouchableOpacity
                                                     key={user.accountId}
                                                     style={styles.mentionSuggestionItem}
                                                     onPress={() => onSelectEditMention(user)}
+                                                    activeOpacity={0.7}
                                                 >
                                                     {user.avatarUrls?.['48x48'] ? (
                                                         <Image
@@ -653,12 +665,24 @@ export default function IssueCommentsSection({
                                 <Text style={styles.mentionLoadingText}>Loading...</Text>
                             </View>
                         ) : mentionSuggestions.length > 0 ? (
-                            <ScrollView style={styles.mentionSuggestionsList}>
+                            <ScrollView 
+                                style={styles.mentionSuggestionsList}
+                                contentContainerStyle={styles.mentionSuggestionsContent}
+                                keyboardShouldPersistTaps="handled"
+                                nestedScrollEnabled={true}
+                                showsVerticalScrollIndicator={true}
+                                bounces={false}
+                                scrollEnabled={true}
+                                alwaysBounceVertical={false}
+                                scrollEventThrottle={16}
+                                removeClippedSubviews={false}
+                            >
                                 {mentionSuggestions.map((user) => (
                                     <TouchableOpacity
                                         key={user.accountId}
                                         style={styles.mentionSuggestionItem}
                                         onPress={() => onSelectMention(user)}
+                                        activeOpacity={0.7}
                                     >
                                         {user.avatarUrls?.['48x48'] ? (
                                             <Image
@@ -1021,6 +1045,7 @@ const styles = StyleSheet.create({
         shadowRadius: 4,
         elevation: 4,
         zIndex: 1000,
+        overflow: 'hidden',
     },
     mentionLoadingContainer: {
         padding: 16,
@@ -1033,6 +1058,10 @@ const styles = StyleSheet.create({
     },
     mentionSuggestionsList: {
         maxHeight: 200,
+        flex: 0,
+    },
+    mentionSuggestionsContent: {
+        flexGrow: 0,
     },
     mentionSuggestionItem: {
         flexDirection: 'row',
