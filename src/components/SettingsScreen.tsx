@@ -458,7 +458,7 @@ export default function SettingsScreen({ onBack, onLogout }: SettingsScreenProps
                 onRequestClose={() => setIsBoardDropdownExpanded(false)}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={styles.boardModalContent}>
+                    <View style={[styles.boardModalContent, { marginBottom: keyboardHeight }]}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Select Default Board</Text>
                             <TouchableOpacity
