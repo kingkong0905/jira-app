@@ -6,7 +6,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "open-ios": "open ios/JiraManagement.xcworkspace"
   },
   "dependencies": {
     "@react-native-community/datetimepicker": "8.4.4",
